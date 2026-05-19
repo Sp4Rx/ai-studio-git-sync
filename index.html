@@ -7,11 +7,11 @@
     <style>
       body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        width: 300px;
         padding: 16px;
         background-color: #f8f9fa;
         color: #212529;
         margin: 0;
+        box-sizing: border-box;
       }
       h2 {
         font-size: 16px;
@@ -35,6 +35,12 @@
       .btn:hover {
         background-color: #0b5ed7;
       }
+      .btn-secondary {
+        background-color: #6c757d;
+      }
+      .btn-secondary:hover {
+        background-color: #5c636a;
+      }
       .btn:disabled {
         background-color: #6c757d;
         cursor: not-allowed;
@@ -45,6 +51,7 @@
         color: #198754;
         text-align: center;
         min-height: 18px;
+        word-break: break-all;
       }
       .error {
         color: #dc3545 !important;
@@ -55,6 +62,50 @@
         margin-bottom: 12px;
         word-break: break-all;
       }
+      .file-list {
+        max-height: 450px;
+        overflow-y: auto;
+        margin-top: 10px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: white;
+      }
+      .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid #dee2e6;
+        font-size: 13px;
+      }
+      .file-item:last-child {
+        border-bottom: none;
+      }
+      .file-item span {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 70%;
+      }
+      .sync-btn-small {
+        background-color: #198754;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      .sync-btn-small:hover {
+        background-color: #157347;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+      }
+      .controls .btn {
+        flex: 1;
+      }
     </style>
   </head>
   <body>
@@ -62,8 +113,13 @@
     
     <div id="workspaceInfo" class="workspace-info">No workspace selected</div>
     
-    <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
-    <button id="syncBtn" class="btn" disabled>Sync to Web Studio</button>
+    <div class="controls">
+      <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
+      <button id="refreshBtn" class="btn btn-secondary" style="display: none;">Refresh</button>
+    </div>
+    <button id="syncBtn" class="btn" style="display: none;">Grant Permissions to View Files</button>
+    
+    <div id="fileList" class="file-list"></div>
     
     <div id="status"></div>
     

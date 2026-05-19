@@ -4,8 +4,10 @@ let currentHandle = null;
 
 const selectWorkspaceBtn = document.getElementById('selectWorkspaceBtn');
 const syncBtn = document.getElementById('syncBtn');
+const refreshBtn = document.getElementById('refreshBtn');
 const statusDiv = document.getElementById('status');
 const workspaceInfo = document.getElementById('workspaceInfo');
+const fileListDiv = document.getElementById('fileList');
 
 function showStatus(message, isError = false) {
   statusDiv.textContent = message;
@@ -16,41 +18,152 @@ function showStatus(message, isError = false) {
   }
 }
 
+async function verifyPermission(handle, readWrite) {
+  const options = {};
+  if (readWrite) {
+    options.mode = 'readwrite';
+  }
+  if ((await handle.queryPermission(options)) === 'granted') {
+    return true;
+  }
+  if ((await handle.requestPermission(options)) === 'granted') {
+    return true;
+  }
+  return false;
+}
+
 async function loadSavedHandle() {
   try {
     currentHandle = await getHandle('workspaceHandle');
     if (currentHandle) {
-      // Verify permissions. Browsers require re-verification of handle permissions on new sessions.
       const permission = await currentHandle.queryPermission({ mode: 'read' });
       if (permission === 'granted') {
         workspaceInfo.textContent = `Selected: ${currentHandle.name}`;
-        syncBtn.disabled = false;
-        showStatus('Workspace ready.');
+        syncBtn.style.display = 'none';
+        refreshBtn.style.display = 'block';
+        showStatus('Reading files...');
+        await listFiles(currentHandle);
       } else {
         workspaceInfo.textContent = `Needs permission: ${currentHandle.name}`;
-        syncBtn.disabled = false; // We will ask for permission when they click sync
-        showStatus('Click Sync to grant permission.', true);
+        syncBtn.style.display = 'block';
+        refreshBtn.style.display = 'none';
+        showStatus('Permission required to read files.', true);
       }
     }
   } catch (error) {
     console.error('Failed to load handle:', error);
+    showStatus('Failed to load saved workspace.', true);
+  }
+}
+
+async function listFiles(dirHandle) {
+  fileListDiv.innerHTML = '';
+  try {
+    const files = [];
+    
+    async function scan(handle, path = '') {
+      for await (const entry of handle.values()) {
+        // Skip dotfiles, node_modules, dist, build, package-lock.json
+        if (entry.name.startsWith('.') || 
+            entry.name === 'node_modules' || 
+            entry.name === 'dist' || 
+            entry.name === 'build' ||
+            entry.name === 'package-lock.json') {
+          continue;
+        }
+        const entryPath = path ? `${path}/${entry.name}` : entry.name;
+        if (entry.kind === 'file') {
+          files.push({ handle: entry, path: entryPath });
+        } else if (entry.kind === 'directory') {
+          await scan(entry, entryPath);
+        }
+      }
+    }
+
+    await scan(dirHandle);
+    
+    // Sort files alphabetically
+    files.sort((a, b) => a.path.localeCompare(b.path));
+
+    if (files.length === 0) {
+      fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">No files found</div>';
+      showStatus('Workspace loaded.');
+      return;
+    }
+
+    files.forEach(fileInfo => {
+      const item = document.createElement('div');
+      item.className = 'file-item';
+      
+      const span = document.createElement('span');
+      span.textContent = fileInfo.path;
+      span.title = fileInfo.path;
+      
+      const btn = document.createElement('button');
+      btn.className = 'sync-btn-small';
+      btn.textContent = 'Sync';
+      btn.addEventListener('click', () => syncSingleFile(fileInfo.handle, fileInfo.path));
+      
+      item.appendChild(span);
+      item.appendChild(btn);
+      fileListDiv.appendChild(item);
+    });
+    
+    showStatus('Workspace loaded. Choose a file to sync.');
+  } catch (err) {
+    console.error(err);
+    showStatus(`Failed to read files: ${err.message}`, true);
+  }
+}
+
+async function syncSingleFile(fileHandle, relativePath) {
+  showStatus(`Syncing: ${relativePath}...`);
+  try {
+    const file = await fileHandle.getFile();
+    
+    // Use FileReader for non-blocking Async base64 conversion
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) {
+      throw new Error('No active tab found.');
+    }
+
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        action: 'syncFile',
+        fileName: file.name,
+        filePath: relativePath, // Send the relative path!
+        fileType: file.type,
+        fileData: base64
+      });
+      showStatus(`Synced: ${relativePath}`);
+    } catch (err) {
+      throw new Error('Content script not found. Please refresh the Web IDE tab and try again.');
+    }
+  } catch (error) {
+    console.error(error);
+    showStatus(`Sync error: ${error.message}`, true);
   }
 }
 
 selectWorkspaceBtn.addEventListener('click', async () => {
   try {
-    const handle = await window.showDirectoryPicker({
-      mode: 'read'
-    });
-    
+    const handle = await window.showDirectoryPicker({ mode: 'read' });
     currentHandle = handle;
     await saveHandle('workspaceHandle', handle);
     
     workspaceInfo.textContent = `Selected: ${handle.name}`;
-    syncBtn.disabled = false;
-    showStatus('Workspace selected successfully!');
+    syncBtn.style.display = 'none';
+    refreshBtn.style.display = 'block';
+    showStatus('Reading files...');
+    await listFiles(handle);
   } catch (error) {
-    // User cancelled or error
     if (error.name !== 'AbortError') {
       showStatus(`Error: ${error.message}`, true);
     }
@@ -58,71 +171,23 @@ selectWorkspaceBtn.addEventListener('click', async () => {
 });
 
 syncBtn.addEventListener('click', async () => {
-  if (!currentHandle) {
-    showStatus('Please select a workspace first.', true);
-    return;
+  if (!currentHandle) return;
+  const granted = await verifyPermission(currentHandle, false);
+  if (granted) {
+    workspaceInfo.textContent = `Selected: ${currentHandle.name}`;
+    syncBtn.style.display = 'none';
+    refreshBtn.style.display = 'block';
+    showStatus('Reading files...');
+    await listFiles(currentHandle);
+  } else {
+    showStatus('Permission denied.', true);
   }
+});
 
-  showStatus('Requesting permissions & reading files...');
-  
-  try {
-    // Verify permission
-    const permission = await currentHandle.queryPermission({ mode: 'read' });
-    if (permission !== 'granted') {
-      const requestPerm = await currentHandle.requestPermission({ mode: 'read' });
-      if (requestPerm !== 'granted') {
-        throw new Error('Permission denied to read folder');
-      }
-    }
-
-    // Now we need to communicate with the background script to orchestrate the sync
-    // Wait, the popup can't easily pass File handles to the background script.
-    // However, the popup *can* read the files and send their contents to the content script directly!
-    // Since we are reading the active tab to inject.
-    
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (!tab) {
-      throw new Error('No active tab found.');
-    }
-
-    // Example logic to read files. In a real scenario, you'd iterate the folder.
-    // For this boilerplate, let's assume we iterate all files and send them.
-    showStatus('Sync started... check console in Web IDE tab.');
-    
-    // Iterate files logic
-    for await (const entry of currentHandle.values()) {
-      if (entry.kind === 'file') {
-        const file = await entry.getFile();
-        
-        // Let's send a message for each file to the background script or content script directly.
-        // We will send to background script to forward to content, or we can send directly to content script.
-        // Since it's binary, we might need to convert it to base64 or ArrayBuffer if sending via Chrome messaging.
-        
-        // Convert to base64 to safely pass via messaging
-        const buffer = await file.arrayBuffer();
-        const base64 = btoa(
-          new Uint8Array(buffer).reduce(
-            (data, byte) => data + String.fromCharCode(byte),
-            ''
-          )
-        );
-
-        chrome.tabs.sendMessage(tab.id, {
-          action: 'syncFile',
-          fileName: file.name,
-          fileType: file.type,
-          fileData: base64
-        });
-      }
-    }
-    
-    showStatus('Sync commands sent!');
-
-  } catch (error) {
-    console.error(error);
-    showStatus(`Sync error: ${error.message}`, true);
-  }
+refreshBtn.addEventListener('click', async () => {
+  if (!currentHandle) return;
+  showStatus('Refreshing file list...');
+  await listFiles(currentHandle);
 });
 
 // Initialize
