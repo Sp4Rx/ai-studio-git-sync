@@ -4,9 +4,9 @@
   <img src="icons/logo.png" alt="AI Studio Git Sync Logo" width="128" height="128">
 </p>
 
-A lightweight Google Chrome Extension designed to synchronize your local workspace folder directly with the Web IDE ("Code" tab) inside **Google AI Studio**. 
+**AI Studio Git Sync** is a powerful, lightweight Google Chrome Extension designed to synchronize your local workspace folders or GitHub repositories directly with the Monaco Web IDE ("Code" tab) inside **Google AI Studio**. 
 
-This extension solves the common issue of managing workspace diffs in Google AI Studio by allowing you to edit files locally in your favorite editor (VS Code, Cursor, etc.) and push changes to the browser instantly with a single click.
+This extension solves the common issue of managing workspace diffs in Google AI Studio by allowing you to edit files locally in your favorite editor (VS Code, Cursor, etc.) or pull the latest changes directly from GitHub, and push changes to the browser instantly. It supports collapsible folder structures, prominent auto-save integration, active Git auto-detection, and a beautiful native light/dark theme.
 
 ---
 

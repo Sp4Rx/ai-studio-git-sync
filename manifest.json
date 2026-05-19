@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AI Studio Git Sync",
   "version": "1.0",
-  "description": "Syncs local files to web studio editor to fix reverse diff issues.",
+  "description": "Sync local workspace or GitHub files directly to Google AI Studio with auto-save, collapsible folder trees, and auto-detect.",
   "permissions": [
     "storage",
     "sidePanel"
