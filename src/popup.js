@@ -8,6 +8,8 @@ let lastLoadedSourceMode = null;
 let fileStates = {}; // key: relativePath, value: 'added' | 'modified' | 'identical'
 let currentWorkspaceFiles = []; // currently loaded workspace/repo files
 let deletedFiles = []; // files that exist in AI Studio but are deleted in source (local/GitHub)
+let lastPromptedFilesStr = '';
+let pendingGitAlertFiles = [];
 
 // DOM Elements
 const selectWorkspaceBtn = document.getElementById('selectWorkspaceBtn');
@@ -23,6 +25,11 @@ const collapseAllBtn = document.getElementById('collapseAllBtn');
 const fullDiffBtn = document.getElementById('fullDiffBtn');
 const loaderOverlay = document.getElementById('loaderOverlay');
 const loaderMessage = document.getElementById('loaderMessage');
+
+const gitTabAlertModal = document.getElementById('gitTabAlertModal');
+const gitAlertCount = document.getElementById('gitAlertCount');
+const gitAlertConfirmBtn = document.getElementById('gitAlertConfirmBtn');
+const gitAlertCancelBtn = document.getElementById('gitAlertCancelBtn');
 
 const tabLocal = document.getElementById('tabLocal');
 const tabGitHub = document.getElementById('tabGitHub');
@@ -94,7 +101,16 @@ function showStatus(message, isError = false) {
 
 async function getActiveTab() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    // If not aistudio or active tab doesn't match, find an open AI studio tab
+    if (!tab || !tab.url || !tab.url.includes('aistudio.google.com')) {
+      const allTabs = await chrome.tabs.query({ url: "*://aistudio.google.com/*" });
+      if (allTabs.length > 0) {
+        tab = allTabs[0];
+      }
+    }
+    
     return tab;
   } catch (e) {
     console.error('Error querying active tab:', e);
@@ -140,6 +156,19 @@ async function initWorkspace() {
       }
       fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Open an AI Studio page to get started.</div>';
       showStatus('Waiting for active AI Studio tab...');
+      return;
+    }
+
+    const appId = getAppId(tab.url);
+    if (!appId) {
+      workspaceInfo.textContent = 'No App Open';
+      syncBtn.style.display = 'none';
+      refreshBtn.style.display = 'none';
+      if (treeActionsDiv) {
+        treeActionsDiv.style.display = 'none';
+      }
+      fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Please open a project/app inside Google AI Studio to start syncing.</div>';
+      showStatus('Waiting for open AI Studio app...');
       return;
     }
 
@@ -363,7 +392,7 @@ function buildAndRenderTree(files, container) {
   // 1. Render Git Changes flat list at the top if there are any modified or deleted files
   const hasModified = modifiedGitFiles && modifiedGitFiles.length > 0;
   const hasDeleted = deletedFiles && deletedFiles.length > 0;
-  
+
   if (hasModified || hasDeleted) {
     const gitChangesHeader = document.createElement('div');
     gitChangesHeader.className = 'git-changes-header';
@@ -384,35 +413,18 @@ function buildAndRenderTree(files, container) {
     titleSpan.textContent = `⚡ Git Changes (${totalChanges})`;
     gitChangesHeader.appendChild(titleSpan);
     
-    const syncAllBtn = document.createElement('button');
-    syncAllBtn.className = 'sync-btn-small';
-    syncAllBtn.textContent = 'Sync All';
-    syncAllBtn.style.padding = '2px 8px';
-    syncAllBtn.style.fontSize = '10px';
-    syncAllBtn.style.backgroundColor = 'var(--btn-bg)';
-    syncAllBtn.style.color = 'var(--btn-text)';
-    syncAllBtn.addEventListener('click', async (e) => {
+    const dynamicSyncAllBtn = document.createElement('button');
+    dynamicSyncAllBtn.className = 'sync-btn-small';
+    dynamicSyncAllBtn.textContent = 'Sync All';
+    dynamicSyncAllBtn.style.padding = '2px 8px';
+    dynamicSyncAllBtn.style.fontSize = '10px';
+    dynamicSyncAllBtn.style.backgroundColor = 'var(--btn-bg)';
+    dynamicSyncAllBtn.style.color = 'var(--btn-text)';
+    dynamicSyncAllBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (modifiedGitFiles.length > 0) {
-        showStatus('Syncing all modified files...');
-        for (const path of modifiedGitFiles) {
-          const fileInfo = files.find(f => f.path === path);
-          if (fileInfo) {
-            await syncSingleFile(fileInfo.handle, fileInfo.path);
-          }
-        }
-      }
-      if (deletedFiles.length > 0) {
-        const confirmBulkDelete = confirm(`Do you also want to delete ${deletedFiles.length} missing files from AI Studio?`);
-        if (confirmBulkDelete) {
-          for (const path of [...deletedFiles]) {
-            await deleteSingleFile(path);
-          }
-        }
-      }
-      showStatus('Sync completed.');
+      await runSyncAll(files);
     });
-    gitChangesHeader.appendChild(syncAllBtn);
+    gitChangesHeader.appendChild(dynamicSyncAllBtn);
     container.appendChild(gitChangesHeader);
     
     const gitChangesList = document.createElement('div');
@@ -677,6 +689,8 @@ function buildAndRenderTree(files, container) {
         syncBtnSmall.textContent = 'Overwrite';
       }
 
+
+
       syncBtnSmall.addEventListener('click', (e) => {
         e.stopPropagation();
         syncSingleFile(fileInfo.handle, fileInfo.path);
@@ -846,9 +860,13 @@ async function syncSingleFile(fileHandle, relativePath) {
   }
 }
 
-async function deleteSingleFile(path) {
-  const confirmDelete = confirm(`Are you sure you want to delete "${path}" from Google AI Studio?`);
-  if (!confirmDelete) return;
+
+
+async function deleteSingleFile(path, bypassConfirm = false) {
+  if (!bypassConfirm) {
+    const confirmDelete = confirm(`Are you sure you want to delete "${path}" from Google AI Studio?`);
+    if (!confirmDelete) return;
+  }
 
   showStatus(`Deleting ${path} from AI Studio...`);
   try {
@@ -878,6 +896,208 @@ async function deleteSingleFile(path) {
     console.error(err);
     showStatus(`Delete failed: ${err.message}`, true);
   }
+}
+
+let isSyncCancelled = false;
+
+async function runSyncAll(files) {
+  const modifiedCount = modifiedGitFiles.length;
+  const deletedCount = deletedFiles.length;
+  const total = modifiedCount + deletedCount;
+  
+  if (total === 0) {
+    showStatus('No changes to sync.');
+    return;
+  }
+  
+  let message = `Are you sure you want to sync all ${total} changes to Google AI Studio?`;
+  if (deletedCount > 0) {
+    message = `This will sync/upload ${modifiedCount} files and delete ${deletedCount} files from AI Studio. Are you sure you want to proceed?`;
+  }
+  const proceed = confirm(message);
+  if (!proceed) return;
+  
+  isSyncCancelled = false;
+  
+  loaderOverlay.style.display = 'flex';
+  const originalLoaderHTML = loaderOverlay.innerHTML;
+  
+  const filesHTML = [
+    ...modifiedGitFiles.map(path => `
+      <div class="progress-file-item" data-path="${path}" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin: 4px 0; color: var(--text-color);">
+        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; display: flex; align-items: center; gap: 4px;">
+          <span class="status-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#cbd5e1;"></span>
+          ${path.split('/').pop()}
+        </span>
+        <span class="status-text" style="color: var(--text-secondary); font-weight: 500;">Pending</span>
+      </div>
+    `),
+    ...deletedFiles.map(path => `
+      <div class="progress-file-item" data-path="${path}" style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; margin: 4px 0; color: var(--danger-color);">
+        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; display: flex; align-items: center; gap: 4px;">
+          <span class="status-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#cbd5e1;"></span>
+          [Delete] ${path.split('/').pop()}
+        </span>
+        <span class="status-text" style="color: var(--text-secondary); font-weight: 500;">Pending</span>
+      </div>
+    `)
+  ].join('');
+  
+  loaderOverlay.innerHTML = `
+    <div class="loader-content" style="max-width: 300px; width: 90%; max-height: 80vh; display: flex; flex-direction: column; text-align: center; box-sizing: border-box; padding: 20px;">
+      <div class="spinner" style="margin-bottom: 10px;"></div>
+      <div id="loaderMessage" style="font-weight: 700; margin-bottom: 12px; font-size: 13px;">Syncing 0 of ${total} files...</div>
+      
+      <div id="progressFilesContainer" style="flex: 1; overflow-y: auto; max-height: 180px; border: 1px solid var(--border-color); border-radius: 8px; padding: 6px; margin-bottom: 14px; background: var(--bg-color); text-align: left;">
+        ${filesHTML}
+      </div>
+      
+      <button id="cancelSyncAllBtn" class="btn" style="margin: 0; background: var(--danger-color); color: white; border: none; font-weight: 600; font-size: 12px; padding: 8px 12px;">Cancel Sync</button>
+    </div>
+  `;
+  
+  const cancelBtn = loaderOverlay.querySelector('#cancelSyncAllBtn');
+  cancelBtn.addEventListener('click', () => {
+    isSyncCancelled = true;
+    cancelBtn.textContent = 'Cancelling...';
+    cancelBtn.disabled = true;
+  });
+  
+  function setProgressStatus(path, statusStr, color, dotColor) {
+    const items = loaderOverlay.querySelectorAll('.progress-file-item');
+    for (const item of items) {
+      if (item.getAttribute('data-path') === path) {
+        const textEl = item.querySelector('.status-text');
+        const dotEl = item.querySelector('.status-dot');
+        if (textEl) {
+          textEl.textContent = statusStr;
+          textEl.style.color = color;
+        }
+        if (dotEl) {
+          dotEl.style.backgroundColor = dotColor;
+        }
+        item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        break;
+      }
+    }
+  }
+  
+  let processed = 0;
+  const tab = await getActiveTab();
+  
+  if (tab) {
+    // 1. Process modified / added files
+    for (const path of modifiedGitFiles) {
+      if (isSyncCancelled) break;
+      processed++;
+      
+      const loaderMsg = loaderOverlay.querySelector('#loaderMessage');
+      if (loaderMsg) {
+        loaderMsg.textContent = `Syncing ${processed} of ${total} files...\n(${path.split('/').pop()})`;
+      }
+      
+      setProgressStatus(path, 'Syncing...', 'var(--btn-bg)', 'var(--btn-bg)');
+      
+      const fileInfo = files.find(f => f.path === path);
+      if (fileInfo) {
+        try {
+          let base64 = '';
+          let fileName = path.split('/').pop();
+          let fileType = getMimeType(fileName);
+          
+          if (fileInfo.handle.git) {
+            const headers = { 'Accept': 'application/vnd.github.raw' };
+            const tokenVal = gitTokenInput.value.trim();
+            if (tokenVal) headers['Authorization'] = `token ${tokenVal}`;
+            const res = await fetch(fileInfo.handle.url, { headers });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const arrayBuffer = await res.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            base64 = btoa(binary);
+          } else {
+            const file = await fileInfo.handle.getFile();
+            fileName = file.name;
+            fileType = file.type;
+            base64 = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result.split(',')[1]);
+              reader.onerror = (e) => reject(e);
+              reader.readAsDataURL(file);
+            });
+          }
+          
+          const autoSave = autoSaveToggle ? autoSaveToggle.checked : true;
+          
+          await new Promise((resolve) => {
+            chrome.tabs.sendMessage(tab.id, {
+              action: 'syncFile',
+              fileName,
+              filePath: path,
+              fileType,
+              fileData: base64,
+              autoSave,
+              closeAfterSync: true,
+              skipWorkspaceSave: true
+            }, () => {
+              resolve();
+            });
+          });
+          
+          setProgressStatus(path, 'Done', 'var(--success-color)', 'var(--success-color)');
+        } catch (err) {
+          console.error(`Failed to sync ${path}:`, err);
+          setProgressStatus(path, 'Failed', 'var(--danger-color)', 'var(--danger-color)');
+        }
+      }
+    }
+    
+    // 2. Process deleted files
+    for (const path of [...deletedFiles]) {
+      if (isSyncCancelled) break;
+      processed++;
+      
+      const loaderMsg = loaderOverlay.querySelector('#loaderMessage');
+      if (loaderMsg) {
+        loaderMsg.textContent = `Deleting ${processed} of ${total} files...\n(${path.split('/').pop()})`;
+      }
+      
+      setProgressStatus(path, 'Deleting...', 'var(--danger-color)', 'var(--danger-color)');
+      
+      try {
+        await deleteSingleFile(path, true);
+        setProgressStatus(path, 'Deleted', 'var(--success-color)', 'var(--success-color)');
+      } catch (err) {
+        console.error(`Failed to delete ${path}:`, err);
+        setProgressStatus(path, 'Failed', 'var(--danger-color)', 'var(--danger-color)');
+      }
+    }
+  }
+  
+  loaderOverlay.innerHTML = originalLoaderHTML;
+  loaderOverlay.style.display = 'none';
+  
+  if (isSyncCancelled) {
+    showStatus('Sync was cancelled by user.', true);
+  } else {
+    const autoSave = autoSaveToggle ? autoSaveToggle.checked : true;
+    if (autoSave && tab) {
+      await new Promise((resolve) => {
+        chrome.tabs.sendMessage(tab.id, { action: 'triggerWorkspaceSave' }, () => {
+          resolve();
+        });
+      });
+    }
+    showStatus('Sync all completed successfully.');
+  }
+  
+  fileStates = {};
+  modifiedGitFiles = [];
+  deletedFiles = [];
+  buildAndRenderTree(currentWorkspaceFiles, fileListDiv);
 }
 
 // Decodes a base64 string to a UTF-8 string
@@ -1175,9 +1395,6 @@ async function runFullDiffScan() {
     if (response.studioFiles && Array.isArray(response.studioFiles)) {
       const localPaths = currentWorkspaceFiles.map(f => f.path);
       deletedFiles = response.studioFiles.filter(path => {
-        const ext = path.split('.').pop().toLowerCase();
-        const isText = !binaryExtensions.includes(ext);
-        
         const parts = path.split('/');
         const hasIgnoredSegment = parts.some(part => 
           part.startsWith('.') || 
@@ -1187,7 +1404,7 @@ async function runFullDiffScan() {
           part === 'package-lock.json'
         );
 
-        return isText && !hasIgnoredSegment && !localPaths.includes(path);
+        return !hasIgnoredSegment && !localPaths.includes(path);
       });
       console.log('Detected deleted files in source:', deletedFiles);
     } else {
@@ -1202,6 +1419,117 @@ async function runFullDiffScan() {
     modifiedGitFiles = [...new Set([...modifiedDetected, ...binaryGitFiles])];
 
     // 5. Re-render tree
+    buildAndRenderTree(currentWorkspaceFiles, fileListDiv);
+    
+    let prefix = 'Workspace loaded';
+    const currentStatus = statusDiv.textContent || '';
+    if (currentStatus.includes('Fetch complete')) {
+      prefix = 'Fetch complete';
+    } else if (currentStatus.includes('Workspace loaded')) {
+      prefix = 'Workspace loaded';
+    }
+    const totalChanges = modifiedGitFiles.length + deletedFiles.length;
+    showStatus(`${prefix} (${totalChanges} changes found: ${modifiedGitFiles.length} mod/add, ${deletedFiles.length} del)`);
+  } catch (err) {
+    console.error(err);
+    showStatus(`Diff check failed: ${err.message}`, true);
+  } finally {
+    loaderOverlay.style.display = 'none';
+  }
+}
+
+async function runDiffScanForFiles(targetPaths) {
+  if (!currentWorkspaceFiles || currentWorkspaceFiles.length === 0) {
+    showStatus('No files loaded to run diff check.', true);
+    return;
+  }
+  
+  const tab = await getActiveTab();
+  if (!tab) {
+    showStatus('No active AI Studio tab found.', true);
+    return;
+  }
+
+  const binaryExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'zip', 'tar', 'gz', 'exe', 'dll', 'mp4', 'mp3', 'wav', 'woff', 'woff2', 'ttf', 'eot', 'ico', 'bin'];
+  const textFiles = currentWorkspaceFiles.filter(f => {
+    const ext = f.path.split('.').pop().toLowerCase();
+    return !binaryExtensions.includes(ext) && targetPaths.includes(f.path);
+  });
+
+  if (textFiles.length === 0) {
+    showStatus('No matching text files found to diff.', true);
+    return;
+  }
+
+  loaderMessage.textContent = `Comparing 1 of ${textFiles.length} files...`;
+  loaderOverlay.style.display = 'flex';
+
+  try {
+    const filePaths = textFiles.map(f => f.path);
+    
+    const response = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'compareAllFiles', filePaths, skipExpandAll: true }, (res) => {
+        if (chrome.runtime.lastError) {
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          resolve(res || { success: false, error: 'No response' });
+        }
+      });
+    });
+
+    if (!response || !response.success || !response.results) {
+      throw new Error(response ? response.error : 'Failed to scan files in page');
+    }
+
+    const results = response.results;
+    let modifiedDetected = [];
+    
+    for (let i = 0; i < textFiles.length; i++) {
+      const fileInfo = textFiles[i];
+      const path = fileInfo.path;
+      loaderMessage.textContent = `Comparing ${i + 1} of ${textFiles.length} files...\n(${fileInfo.path.split('/').pop()})`;
+      
+      const scanResult = results[path];
+      if (!scanResult || scanResult.status === 'not_found' || scanResult.status === 'error') {
+        fileStates[path] = 'added';
+        modifiedDetected.push(path);
+        continue;
+      }
+      
+      const studioContent = scanResult.content || '';
+      
+      let sourceContent = '';
+      if (fileInfo.handle.git) {
+        const headers = { 'Accept': 'application/vnd.github.raw' };
+        const tokenVal = gitTokenInput.value.trim();
+        if (tokenVal) headers['Authorization'] = `token ${tokenVal}`;
+        const res = await fetch(fileInfo.handle.url, { headers });
+        if (res.ok) sourceContent = await res.text();
+      } else {
+        const file = await fileInfo.handle.getFile();
+        sourceContent = await file.text();
+      }
+      
+      const diffs = diffLines(studioContent, sourceContent);
+      const hasChanges = diffs.some(line => line.type === 'added' || line.type === 'removed');
+      
+      if (hasChanges) {
+        fileStates[path] = 'modified';
+        modifiedDetected.push(path);
+      } else {
+        fileStates[path] = 'identical';
+      }
+    }
+
+    const scannedPaths = textFiles.map(f => f.path);
+    modifiedGitFiles = modifiedGitFiles.filter(path => !scannedPaths.includes(path));
+    
+    modifiedDetected.forEach(path => {
+      if (!modifiedGitFiles.includes(path)) {
+        modifiedGitFiles.push(path);
+      }
+    });
+
     buildAndRenderTree(currentWorkspaceFiles, fileListDiv);
     
     let prefix = 'Workspace loaded';
@@ -1332,7 +1660,7 @@ async function autoDetectGit() {
     }
   } catch (err) {
     console.warn('Failed to contact content script for Git auto-detection:', err);
-    showStatus('Please make sure you have the Git panel open in AI Studio to auto-detect.', true);
+    showStatus('Please click anywhere on the AI Studio page first, then try again.', true);
   }
 }
 
@@ -1416,6 +1744,26 @@ if (fullDiffBtn) {
   fullDiffBtn.addEventListener('click', runFullDiffScan);
 }
 
+if (gitAlertConfirmBtn) {
+  gitAlertConfirmBtn.addEventListener('click', () => {
+    if (gitTabAlertModal) {
+      gitTabAlertModal.style.display = 'none';
+    }
+    const filesToScan = [...pendingGitAlertFiles];
+    lastPromptedFilesStr = filesToScan.sort().join(',');
+    runDiffScanForFiles(filesToScan);
+  });
+}
+
+if (gitAlertCancelBtn) {
+  gitAlertCancelBtn.addEventListener('click', () => {
+    if (gitTabAlertModal) {
+      gitTabAlertModal.style.display = 'none';
+    }
+    lastPromptedFilesStr = pendingGitAlertFiles.sort().join(',');
+  });
+}
+
 tabLocal.addEventListener('click', () => setSourceMode('local'));
 tabGitHub.addEventListener('click', () => setSourceMode('github'));
 gitFetchBtn.addEventListener('click', fetchGitHubTree);
@@ -1437,6 +1785,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const loaderMsg = document.getElementById('loaderMessage');
     if (loaderMsg) {
       loaderMsg.textContent = `Comparing ${message.current} of ${message.total} files...\n(${message.filePath.split('/').pop()})`;
+    }
+  } else if (message.action === 'gitTabOpenedWithChanges') {
+    const changes = message.changes || [];
+    if (changes.length > 0) {
+      const changesStr = changes.sort().join(',');
+      if (changesStr !== lastPromptedFilesStr) {
+        const isBusy = (loaderOverlay && loaderOverlay.style.display === 'flex') || 
+                       (diffModal && diffModal.style.display === 'flex') ||
+                       (gitTabAlertModal && gitTabAlertModal.style.display === 'flex');
+                       
+        if (!isBusy) {
+          pendingGitAlertFiles = changes;
+          if (gitAlertCount) {
+            gitAlertCount.textContent = changes.length;
+          }
+          if (gitTabAlertModal) {
+            gitTabAlertModal.style.display = 'flex';
+          }
+        }
+      }
     }
   }
 });

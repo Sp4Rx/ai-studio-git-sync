@@ -141,3 +141,128 @@ window.addEventListener('GetActiveModelContent', () => {
   }
 });
 
+window.addEventListener('SimulateFileDropMainWorld', async (event) => {
+  try {
+    const { targetId, fileName, fileType, fileDataBase64, filePath } = event.detail;
+    
+    const dropZone = document.getElementById(targetId);
+    if (!dropZone) {
+      console.warn('Page Context: Drop zone element not found by ID:', targetId);
+      return;
+    }
+
+    console.log(`Page Context: Simulating drop for ${fileName} with path ${filePath} onto`, dropZone);
+
+    const binaryString = atob(fileDataBase64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    const file = new File([bytes], fileName, { type: fileType });
+
+    Object.defineProperty(file, 'webkitRelativePath', {
+      get: () => filePath || fileName,
+      configurable: true
+    });
+
+    const rect = dropZone.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+
+    // Helper to build entry recursively
+    const normalizedPath = (filePath || fileName).replace(/\\/g, '/').replace(/^\//, '');
+    const parts = normalizedPath.split('/');
+
+    function buildEntry(index) {
+      const name = parts[index];
+      const isLast = (index === parts.length - 1);
+      const fullPath = '/' + parts.slice(0, index + 1).join('/');
+
+      if (isLast) {
+        // FileEntry
+        return {
+          isFile: true,
+          isDirectory: false,
+          name: name,
+          fullPath: fullPath,
+          file: (successCallback) => {
+            if (successCallback) successCallback(file);
+          }
+        };
+      } else {
+        // DirectoryEntry
+        const childEntry = buildEntry(index + 1);
+        return {
+          isFile: false,
+          isDirectory: true,
+          name: name,
+          fullPath: fullPath,
+          createReader: () => {
+            let read = false;
+            return {
+              readEntries: (successCallback) => {
+                if (!read) {
+                  read = true;
+                  successCallback([childEntry]);
+                } else {
+                  successCallback([]); // No more entries
+                }
+              }
+            };
+          }
+        };
+      }
+    }
+
+    const rootEntry = buildEntry(0);
+
+    // Create custom mock DataTransferItem representing the root of the drop
+    const mockItem = {
+      kind: 'file',
+      type: file.type,
+      getAsFile: () => file,
+      webkitGetAsEntry: () => rootEntry
+    };
+
+    const mockItems = [mockItem];
+    mockItems.item = (idx) => mockItems[idx];
+
+    const mockFiles = [file];
+    mockFiles.item = (idx) => mockFiles[idx];
+
+    const mockDataTransfer = {
+      dropEffect: 'all',
+      effectAllowed: 'all',
+      types: ['Files'],
+      files: mockFiles,
+      items: mockItems
+    };
+
+    const enterTargets = [dropZone, document.body, window];
+    for (const target of enterTargets) {
+      if (!target) continue;
+      const dragEnterEvent = new DragEvent('dragenter', { bubbles: true, cancelable: true, clientX, clientY });
+      Object.defineProperty(dragEnterEvent, 'dataTransfer', { value: mockDataTransfer, configurable: true });
+      const dragOverEvent = new DragEvent('dragover', { bubbles: true, cancelable: true, clientX, clientY });
+      Object.defineProperty(dragOverEvent, 'dataTransfer', { value: mockDataTransfer, configurable: true });
+      target.dispatchEvent(dragEnterEvent);
+      target.dispatchEvent(dragOverEvent);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const dropEvent = new DragEvent('drop', { bubbles: true, cancelable: true, clientX, clientY });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: mockDataTransfer, configurable: true });
+    dropZone.dispatchEvent(dropEvent);
+    
+    console.log('Page Context: Simulated drop event dispatched with directory entry structure.');
+    
+    // Cleanup temporary ID
+    if (dropZone.id && dropZone.id.startsWith('ai-studio-git-sync-drop-')) {
+      dropZone.removeAttribute('id');
+    }
+  } catch (err) {
+    console.error('Page Context Simulate Drop Error:', err);
+  }
+});
+

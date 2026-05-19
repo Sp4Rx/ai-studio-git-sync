@@ -843,6 +843,22 @@
       </div>
     </div>
     
+    <!-- Git Tab Alert Modal -->
+    <div id="gitTabAlertModal" class="loader-overlay" style="display: none; align-items: center; justify-content: center; z-index: 10000;">
+      <div class="loader-content" style="max-width: 280px; text-align: center; padding: 20px; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--border-color); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);">
+        <h3 style="margin-top: 0; color: var(--btn-bg); font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+          ⚡ Git Changes Detected
+        </h3>
+        <p style="font-size: 12px; margin: 12px 0 20px; color: var(--text-color); line-height: 1.4;">
+          We detected <strong id="gitAlertCount" style="color: var(--btn-bg);">0</strong> changed files in Google AI Studio's Git tab. Do you want to run a Diff Check for these files only?
+        </p>
+        <div style="display: flex; gap: 8px; justify-content: center;">
+          <button id="gitAlertConfirmBtn" class="btn" style="margin: 0; font-size: 12px; padding: 6px 16px; min-width: 80px;">Yes</button>
+          <button id="gitAlertCancelBtn" class="btn btn-secondary" style="margin: 0; font-size: 12px; padding: 6px 16px; min-width: 80px;">No</button>
+        </div>
+      </div>
+    </div>
+    
     <script type="module" src="/src/popup.js"></script>
   </body>
 </html>

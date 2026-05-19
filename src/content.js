@@ -2,12 +2,16 @@
 
 console.log('AI Studio Git Sync Content Script Loaded');
 
+let lastWorkspaceFilePaths = [];
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'syncFile') {
     const displayPath = request.filePath || request.fileName;
     console.log(`Received file sync request for: ${displayPath}`);
-    handleSync(request.fileName, request.filePath, request.fileType, request.fileData, request.autoSave);
-    sendResponse({ success: true });
+    handleSync(request.fileName, request.filePath, request.fileType, request.fileData, request.autoSave, request.closeAfterSync, request.skipWorkspaceSave).then(() => {
+      sendResponse({ success: true });
+    });
+    return true; // Keep channel open for async response
   } else if (request.action === 'detectGit') {
     detectGitHubInfo().then(gitInfo => {
       sendResponse({ gitInfo });
@@ -29,7 +33,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   } else if (request.action === 'compareAllFiles') {
-    compareAllFiles(request.filePaths).then(result => {
+    compareAllFiles(request.filePaths, request.skipExpandAll).then(result => {
       sendResponse(result);
     });
     return true;
@@ -37,6 +41,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     deleteFileInTree(request.filePath).then(success => {
       sendResponse({ success });
     });
+    return true;
+  } else if (request.action === 'triggerWorkspaceSave') {
+    triggerWorkspaceSave();
+    sendResponse({ success: true });
     return true;
   }
   return true;
@@ -97,7 +105,7 @@ async function getFileContent(filePath) {
       setTimeout(() => {
         window.removeEventListener('GetActiveModelUriResult', handler);
         resolve(null);
-      }, 500);
+      }, 1000);
     });
   } catch (e) {
     console.warn('Failed to get active model URI:', e);
@@ -144,6 +152,7 @@ async function getFileContent(filePath) {
 
 async function getGitModifiedFiles(filePaths) {
   if (!filePaths || filePaths.length === 0) return [];
+  lastWorkspaceFilePaths = filePaths;
   console.log(`Scanning for modified files among ${filePaths.length} workspace files...`);
 
   // Find and click GitHub tab to render the changes pane
@@ -310,7 +319,7 @@ async function detectGitHubInfo() {
 }
 
 
-async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave) {
+async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave, closeAfterSync, skipWorkspaceSave) {
   try {
     // Decode base64 back to array buffer / Blob
     const binaryString = atob(fileDataBase64);
@@ -334,24 +343,54 @@ async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave
 
     if (isText && filePath) {
       console.log(`Text file detected: ${filePath}`);
+      
+      // Check if the file is already open in Monaco
+      let isLoadedBefore = false;
+      try {
+        const openModels = await getMonacoModels();
+        if (openModels && openModels.success && openModels.models) {
+          const relPath = filePath.toLowerCase().replace(/\\/g, '/');
+          const matched = openModels.models.find(m => {
+            const uriStr = m.uri.toLowerCase().replace(/\\/g, '/');
+            return uriStr.endsWith('/' + relPath) || uriStr.endsWith('model/' + relPath) || uriStr === relPath;
+          });
+          if (matched) {
+            isLoadedBefore = true;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to check if file loaded before sync:', e);
+      }
+
       console.log(`Attempting to open existing file: ${filePath}`);
       const opened = await openFileInTree(filePath);
       
       if (!opened) {
         console.log(`File not found in tree. Attempting to upload via drop...`);
         // Fall back to drag and drop to upload new files
-        await simulateFileDrop(file, filePath);
+        await simulateFileDrop(file, filePath, fileDataBase64);
         
         if (autoSave) {
-          // Wait 1.5s for the app to register the drop and render files
-          await new Promise(r => setTimeout(r, 1500));
+          // Wait 1s for the app to register the drop
+          await new Promise(r => setTimeout(r, 1000));
           const openedNew = await openFileInTree(filePath);
           if (!openedNew) {
             console.warn("Could not open newly created file in tree after drop.");
           }
-          triggerWorkspaceSave();
+          if (!skipWorkspaceSave) {
+            triggerWorkspaceSave();
+          }
         } else {
           console.log('Auto-save is disabled. Skipping save for new file upload.');
+        }
+        
+        // Close the newly uploaded file tab if requested
+        if (closeAfterSync) {
+          try {
+            await closeTabForFile(filePath);
+          } catch (e) {
+            console.warn(`Failed to close tab for ${filePath}:`, e);
+          }
         }
         return;
       }
@@ -361,16 +400,30 @@ async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave
       
       if (autoSave) {
         // Auto-click the bottom workspace "Save" button if it appears
-        triggerWorkspaceSave();
+        if (!skipWorkspaceSave) {
+          triggerWorkspaceSave();
+        }
       } else {
         console.log('Auto-save is disabled. Skipping workspace save click.');
       }
+
+      // Close the tab immediately if it was opened programmatically during the sync
+      if (closeAfterSync && !isLoadedBefore) {
+        try {
+          await closeTabForFile(filePath);
+        } catch (e) {
+          console.warn(`Failed to close tab for ${filePath}:`, e);
+        }
+      }
     } else {
       console.log('Binary file or no path. Simulating drag and drop upload...');
-      await simulateFileDrop(file, filePath);
+      await simulateFileDrop(file, filePath, fileDataBase64);
+      
       if (autoSave) {
         await new Promise(r => setTimeout(r, 1500));
-        triggerWorkspaceSave();
+        if (!skipWorkspaceSave) {
+          triggerWorkspaceSave();
+        }
       }
     }
   } catch (error) {
@@ -635,173 +688,51 @@ async function navigateToFolder(folderPath) {
 }
 
 // Simulating dropping a file into the web IDE file explorer
-async function simulateFileDrop(file, filePath) {
+async function simulateFileDrop(file, filePath, fileDataBase64) {
   let dropZone = null;
 
-  let folderPath = '';
-  if (filePath && filePath.includes('/')) {
-    folderPath = filePath.substring(0, filePath.lastIndexOf('/'));
+  // We should ALWAYS target the main root container `mat-tree.cdk-drop-list` because that's what listens to drop events!
+  // It handles nested folders natively via webkitGetAsEntry.
+  const dropZoneSelectors = ['mat-tree.cdk-drop-list', 'mat-tree', 'project-file-explorer', 'file-tree', '.file-explorer', 'div[role="tree"]'];
+  for (const selector of dropZoneSelectors) {
+    dropZone = document.querySelector(selector);
+    if (dropZone) break;
   }
 
-  if (folderPath) {
-    console.log(`Attempting to locate folder node for drop zone: ${folderPath}`);
-    try {
-      const folderNode = await navigateToFolder(folderPath);
-      if (folderNode) {
-        dropZone = folderNode;
-        console.log(`Found nested folder node to drop onto:`, folderNode);
-      }
-    } catch (e) {
-      console.warn('Failed to navigate folder for drop:', e);
-    }
-  }
-
+  // Backup search
   if (!dropZone) {
-    // Find the container displaying existing project files
     const commonFiles = ['.gitignore', 'package.json', '.env.example', 'tsconfig.json', 'metadata.json'];
     for (const filename of commonFiles) {
       const fileElements = Array.from(document.querySelectorAll('div, span, a, p, li'));
-      const matchedElement = fileElements.find(el => el.textContent.trim() === filename);
-      if (matchedElement) {
-        let parent = matchedElement.parentElement;
-        while (parent && parent !== document.body) {
-          const role = parent.getAttribute('role');
-          const tagName = parent.tagName.toLowerCase();
-          const className = parent.className || '';
-          
-          // Skip individual leaf nodes so we don't drop on item nodes
-          if (role === 'treeitem' || tagName === 'mat-tree-node') {
-            parent = parent.parentElement;
-            continue;
-          }
-          
-          if (role === 'tree' || 
-              tagName === 'mat-tree' ||
-              tagName === 'cdk-tree' ||
-              className.includes('explorer') || 
-              className.includes('sidebar') ||
-              parent.scrollHeight > parent.clientHeight) {
-            dropZone = parent;
-            break;
-          }
-          parent = parent.parentElement;
-        }
+      const el = fileElements.find(e => e.textContent && e.textContent.trim().endsWith(filename));
+      if (el) {
+        dropZone = el.closest('mat-tree') || el.closest('[role="tree"]') || el.parentElement;
         if (dropZone) break;
       }
     }
   }
 
   if (!dropZone) {
-    const dropZoneSelectors = ['project-file-explorer', 'file-tree', '.file-explorer', 'div[role="tree"]'];
-    for (const selector of dropZoneSelectors) {
-      const el = document.querySelector(selector);
-      if (el) {
-        dropZone = el;
-        break;
-      }
-    }
-  }
-
-  if (!dropZone) {
+    console.warn("Could not find IDE Drop Zone. Falling back to document.body");
     dropZone = document.body;
   }
 
-  console.log(`Simulating drop for file: ${file.name} onto target:`, dropZone);
-
-  // Get coordinates in center of dropzone
-  const rect = dropZone.getBoundingClientRect();
-  const clientX = rect.left + rect.width / 2;
-  const clientY = rect.top + rect.height / 2;
-
-  // Setup the mock DataTransfer object
-  const dataTransfer = new DataTransfer();
-  try {
-    dataTransfer.items.add(file);
-  } catch (e) {}
-
-  // Override properties to satisfy Angular CDK checks
-  Object.defineProperty(dataTransfer, 'types', {
-    get: () => ['Files'],
-    configurable: true
-  });
-  
-  const fileList = [file];
-  fileList.item = (idx) => fileList[idx];
-  Object.defineProperty(dataTransfer, 'files', {
-    get: () => fileList,
-    configurable: true
-  });
-
-  // Mock webkitGetAsEntry to support entry-based tree parsing (used for file structure drops)
-  if (dataTransfer.items && dataTransfer.items.length > 0) {
-    const item = dataTransfer.items[0];
-    
-    Object.defineProperty(item, 'kind', { get: () => 'file', configurable: true });
-    Object.defineProperty(item, 'type', { get: () => file.type, configurable: true });
-    
-    Object.defineProperty(item, 'webkitGetAsEntry', {
-      value: () => {
-        return {
-          isFile: true,
-          isDirectory: false,
-          name: file.name,
-          fullPath: '/' + (filePath || file.name),
-          file: (successCallback) => {
-            if (successCallback) successCallback(file);
-          }
-        };
-      },
-      configurable: true
-    });
+  if (!dropZone.id) {
+    dropZone.id = 'ai-studio-git-sync-drop-' + Math.random().toString(36).substr(2, 9);
   }
 
-  // 1. Dispatch DragEnter and DragOver first (this often triggers dynamic dropzone overlays / file inputs)
-  const enterTargets = [dropZone, document.body, window];
-  for (const target of enterTargets) {
-    if (!target) continue;
-    const dragEnterEvent = new DragEvent('dragenter', { bubbles: true, cancelable: true, clientX, clientY });
-    Object.defineProperty(dragEnterEvent, 'dataTransfer', { value: dataTransfer, configurable: true });
-    const dragOverEvent = new DragEvent('dragover', { bubbles: true, cancelable: true, clientX, clientY });
-    Object.defineProperty(dragOverEvent, 'dataTransfer', { value: dataTransfer, configurable: true });
-    
-    target.dispatchEvent(dragEnterEvent);
-    target.dispatchEvent(dragOverEvent);
-  }
+  console.log(`Delegating drop simulation to MAIN world for file: ${file.name} onto target:`, dropZone);
 
-  // 2. Wait 100ms for any dynamic DOM changes (e.g. dropzone overlays or hidden inputs appearing)
-  await new Promise(resolve => setTimeout(resolve, 100));
-
-  // 3. Search for file inputs as a backup (some dropzones dynamically insert input[type="file"])
-  // Only execute this backup for root drops (when folderPath is empty) to avoid uploading nested files to root!
-  if (!folderPath) {
-    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
-    console.log(`Diagnostic: Found ${fileInputs.length} file inputs on the page:`, fileInputs);
-    
-    if (fileInputs.length > 0) {
-      console.log('Backup: Attempting upload using standard file inputs...');
-      for (const input of fileInputs) {
-        try {
-          const cleanDt = new DataTransfer();
-          cleanDt.items.add(file);
-          input.files = cleanDt.files;
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-          console.log('Dispatched change event to file input.');
-        } catch (err) {
-          console.warn('Failed to assign file to input:', err);
-        }
-      }
+  window.dispatchEvent(new CustomEvent('SimulateFileDropMainWorld', {
+    detail: {
+      targetId: dropZone.id,
+      fileName: file.name,
+      fileType: file.type,
+      fileDataBase64: fileDataBase64,
+      filePath: filePath,
+      isNestedFolder: false // deprecated fallback
     }
-  } else {
-    console.log('Nested folder target: Skipping standard file input backup to prevent root upload.');
-  }
-
-  // 4. Dispatch the final drop event ONLY to the specific dropZone (and let it bubble naturally)
-  console.log(`Simulating drop on folder dropZone:`, dropZone);
-  const dropEvent = new DragEvent('drop', { bubbles: true, cancelable: true, clientX, clientY });
-  Object.defineProperty(dropEvent, 'dataTransfer', { value: dataTransfer, configurable: true });
-  dropZone.dispatchEvent(dropEvent);
-  
-  console.log('Drop event dispatched to target dropZone.');
+  }));
 }
 
 async function waitForActiveModelChange(targetPath, timeout = 600) {
@@ -837,13 +768,50 @@ async function waitForActiveModelChange(targetPath, timeout = 600) {
   return false;
 }
 
-async function compareAllFiles(filePaths) {
+async function closeTabForFile(filePath) {
+  const fileName = filePath.split('/').pop();
+  console.log(`Attempting to close editor tab for: ${fileName}`);
+  
+  // Locate the tab in Google AI Studio's ms-file-tabs custom element
+  const tab = Array.from(document.querySelectorAll('ms-file-tabs .tab')).find(t => {
+    const textEl = t.querySelector('.tab-text');
+    return textEl && textEl.textContent.trim() === fileName;
+  });
+  
+  if (tab) {
+    const closeBtn = tab.querySelector('button');
+    if (closeBtn) {
+      console.log(`Clicking tab close button for: ${fileName}`);
+      closeBtn.click();
+      await new Promise(r => setTimeout(r, 150));
+      return true;
+    }
+  } else {
+    // Generic fallback for tabs
+    const allTabs = Array.from(document.querySelectorAll('.tab, .tab-item, [role="tab"]'));
+    const fallbackTab = allTabs.find(t => (t.textContent || '').includes(fileName));
+    if (fallbackTab) {
+      const closeBtn = fallbackTab.querySelector('button, .close, mat-icon');
+      if (closeBtn) {
+        closeBtn.click();
+        await new Promise(r => setTimeout(r, 150));
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+async function compareAllFiles(filePaths, skipExpandAll = false) {
+  lastWorkspaceFilePaths = filePaths;
   console.log(`Initiating sequential workspace comparison of ${filePaths.length} files...`);
   
-  try {
-    await expandAllTreeFolders();
-  } catch (err) {
-    console.warn('Failed to expand all tree folders:', err);
+  if (!skipExpandAll) {
+    try {
+      await expandAllTreeFolders();
+    } catch (err) {
+      console.warn('Failed to expand all tree folders:', err);
+    }
   }
   
   let activeUri = null;
@@ -858,7 +826,7 @@ async function compareAllFiles(filePaths) {
       setTimeout(() => {
         window.removeEventListener('GetActiveModelUriResult', handler);
         resolve(null);
-      }, 300);
+      }, 1000); // Increased timeout to ensure we capture the active file before scanning
     });
   } catch (e) {
     console.warn('Failed to get active model URI:', e);
@@ -883,6 +851,7 @@ async function compareAllFiles(filePaths) {
       const openModels = await getMonacoModels();
       let content = null;
       let isFound = false;
+      let openedProgrammatically = false;
       
       if (openModels && openModels.success && openModels.models) {
         const relPath = filePath.toLowerCase().replace(/\\/g, '/');
@@ -900,6 +869,7 @@ async function compareAllFiles(filePaths) {
       if (!isFound) {
         const opened = await openFileInTree(filePath);
         if (opened) {
+          openedProgrammatically = true;
           content = await new Promise((resolve) => {
             const handler = (event) => {
               window.removeEventListener('GetActiveModelContentResult', handler);
@@ -922,6 +892,15 @@ async function compareAllFiles(filePaths) {
       } else {
         results[filePath] = { status: 'not_found' };
       }
+
+      // Close the tab immediately if it was opened programmatically during the diff scan
+      if (openedProgrammatically) {
+        try {
+          await closeTabForFile(filePath);
+        } catch (e) {
+          console.warn(`Failed to close tab for ${filePath}:`, e);
+        }
+      }
     } catch (err) {
       console.warn(`Error scanning file ${filePath}:`, err);
       results[filePath] = { status: 'error', error: err.message };
@@ -936,9 +915,15 @@ async function compareAllFiles(filePaths) {
     }
   }
   
+  try {
+    await collapseAllTreeFolders(activeUri ? getRelativePathFromMonacoUri(activeUri) : null);
+  } catch (err) {
+    console.warn('Failed to collapse tree folders after diff:', err);
+  }
+  
   let studioFiles = [];
   try {
-    studioFiles = getAllStudioFiles();
+    studioFiles = await getAllStudioFiles();
   } catch (err) {
     console.warn('Failed to scan studio file tree:', err);
   }
@@ -951,10 +936,12 @@ async function expandAllTreeFolders() {
   let newlyExpanded = true;
   let safetyLoop = 0;
   
-  while (newlyExpanded && safetyLoop < 15) {
+  while (newlyExpanded && safetyLoop < 10) {
     newlyExpanded = false;
     safetyLoop++;
     const nodes = Array.from(document.querySelectorAll('mat-tree-node, [role="treeitem"]'));
+    let clickedAny = false;
+    
     for (const node of nodes) {
       const isExpandedAttr = node.getAttribute('aria-expanded');
       let isExpanded = isExpandedAttr === 'true';
@@ -973,17 +960,83 @@ async function expandAllTreeFolders() {
       if (isFolder && !isExpanded) {
         console.log('Expanding folder during scanner:', getNodeTextWithoutIcons(node));
         node.click();
+        clickedAny = true;
         newlyExpanded = true;
-        await new Promise(r => setTimeout(r, 250));
       }
+    }
+    
+    if (clickedAny) {
+      // Wait once for all clicked folders to expand in parallel
+      await new Promise(r => setTimeout(r, 350));
     }
   }
   console.log('Tree folders expansion complete.');
 }
 
-function getAllStudioFiles() {
+async function collapseAllTreeFolders(preservePath) {
+  console.log(`Collapsing all tree folders (preserving path: ${preservePath || 'none'})...`);
+  let preserveSegments = [];
+  if (preservePath) {
+    preserveSegments = preservePath.split('/').slice(0, -1);
+  }
+  
+  let newlyCollapsed = true;
+  let safetyLoop = 0;
+  
+  while (newlyCollapsed && safetyLoop < 15) {
+    newlyCollapsed = false;
+    safetyLoop++;
+    // Must re-query nodes because DOM can change
+    const nodes = Array.from(document.querySelectorAll('mat-tree-node, [role="treeitem"]')).reverse(); // reverse to collapse bottom-up
+    
+    for (const node of nodes) {
+      const isExpandedAttr = node.getAttribute('aria-expanded');
+      let isExpanded = isExpandedAttr === 'true';
+      if (isExpandedAttr === null) {
+        isExpanded = node.className.includes('expanded') || 
+                     !!node.querySelector('.mat-tree-node-expanded, .expanded');
+      }
+      
+      const isFolder = node.hasAttribute('aria-expanded') || 
+                       node.className.includes('folder') || 
+                       node.querySelector('.mat-icon-folder') ||
+                       node.querySelector('span[style*="folder"]') || 
+                       !!node.querySelector('.mat-tree-node-expanded, .mat-tree-node-collapsed') ||
+                       node.getAttribute('aria-expanded') !== null;
+                       
+      if (isFolder && isExpanded) {
+        const folderName = getNodeTextWithoutIcons(node);
+        // Don't collapse if it's part of the preserve path
+        if (preserveSegments.includes(folderName)) {
+           continue;
+        }
+        console.log('Collapsing folder:', folderName);
+        node.click();
+        newlyCollapsed = true;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+  }
+}
+
+async function getAllStudioFiles() {
+  const files = new Set();
+  
+  // 1. Get from Monaco (most reliable for text files)
+  try {
+    const monacoResult = await getMonacoModels();
+    if (monacoResult && monacoResult.success && monacoResult.models) {
+      for (const model of monacoResult.models) {
+        const path = getRelativePathFromMonacoUri(model.uri);
+        if (path) files.add(path);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to get Monaco models for studio files:', e);
+  }
+
+  // 2. Get from DOM (fallback for images and un-opened files)
   const nodes = Array.from(document.querySelectorAll('mat-tree-node, [role="treeitem"]'));
-  const files = [];
   const pathStack = [];
   
   for (const node of nodes) {
@@ -993,7 +1046,7 @@ function getAllStudioFiles() {
     
     if (!name) continue;
     
-    pathStack.length = level - 1;
+    pathStack.length = Math.max(0, level - 1);
     
     const isFolder = node.hasAttribute('aria-expanded') || 
                      node.className.includes('folder') || 
@@ -1006,11 +1059,13 @@ function getAllStudioFiles() {
       pathStack.push(name);
     } else {
       const relativePath = pathStack.length > 0 ? `${pathStack.join('/')}/${name}` : name;
-      files.push(relativePath);
+      files.add(relativePath);
     }
   }
-  console.log('Scanned files in AI Studio:', files);
-  return files;
+  
+  const filesArray = Array.from(files);
+  console.log('Scanned files in AI Studio:', filesArray);
+  return filesArray;
 }
 
 async function deleteFileInTree(filePath) {
@@ -1022,26 +1077,49 @@ async function deleteFileInTree(filePath) {
       return false;
     }
     
-    const nodes = Array.from(document.querySelectorAll('mat-tree-node, [role="treeitem"]'));
+    // Reproduce the tree navigation to accurately find the node for the file
     const parts = filePath.split('/');
-    const segment = parts[parts.length - 1];
-    const currentLevel = parts.length;
-    
+    let parentIndex = -1;
+    let currentLevel = 1;
     let targetNode = null;
-    for (const node of nodes) {
-      const levelAttr = node.getAttribute('aria-level');
-      const level = levelAttr ? parseInt(levelAttr, 10) : 1;
-      if (level === currentLevel) {
-        const nodeText = getNodeTextWithoutIcons(node);
-        if (nodeText === segment || nodeText.includes(segment)) {
-          targetNode = node;
+
+    for (let i = 0; i < parts.length; i++) {
+      const segment = parts[i];
+      currentLevel = i + 1;
+      
+      const nodes = Array.from(document.querySelectorAll('mat-tree-node, [role="treeitem"]'));
+      let targetIndex = -1;
+      
+      for (let j = 0; j < nodes.length; j++) {
+        if (j <= parentIndex) continue;
+        
+        const node = nodes[j];
+        const levelAttr = node.getAttribute('aria-level');
+        const level = levelAttr ? parseInt(levelAttr, 10) : 1;
+        
+        if (i > 0 && level < currentLevel) {
           break;
         }
+        
+        if (level === currentLevel) {
+          const nodeText = getNodeTextWithoutIcons(node);
+          if (nodeText === segment || nodeText.includes(segment) || nodeText.endsWith(`/${segment}`)) {
+            targetIndex = j;
+            break;
+          }
+        }
       }
+      
+      if (targetIndex === -1) {
+        targetNode = null;
+        break;
+      }
+      targetNode = nodes[targetIndex];
+      parentIndex = targetIndex;
     }
     
     if (!targetNode) {
-      console.warn(`Target node for delete not found: ${segment}`);
+      console.warn(`Target node for delete not found: ${filePath}`);
       return false;
     }
     
@@ -1059,6 +1137,8 @@ async function deleteFileInTree(filePath) {
     const deleteItem = menuItems.find(item => item.textContent.toLowerCase().includes('delete'));
     if (!deleteItem) {
       console.warn('Delete item not found in dropdown menu.');
+      // Click away to close menu
+      document.body.click();
       return false;
     }
     
@@ -1087,3 +1167,100 @@ async function deleteFileInTree(filePath) {
     return false;
   }
 }
+
+async function scrapeGitChangesNoClick(filePaths) {
+  if (!filePaths || filePaths.length === 0) return [];
+  const modified = [];
+  try {
+    const statusLabels = Array.from(document.querySelectorAll('span, div, p, badge, mat-chip'));
+    const gitStatuses = ['Modified', 'Added', 'Deleted', 'Untracked', 'modified', 'added', 'deleted', 'untracked'];
+    
+    const detectedPaths = [];
+    for (const label of statusLabels) {
+      if (label.offsetParent === null) continue; // Must be visible
+      const labelText = label.textContent ? label.textContent.trim() : '';
+      if (gitStatuses.includes(labelText)) {
+        let container = label.parentElement;
+        
+        for (let depth = 0; depth < 3; depth++) {
+          if (!container || container === document.body) break;
+          const text = container.textContent ? container.textContent.trim() : '';
+          
+          let cleaned = text
+            .replace(labelText, '')
+            .replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+            
+          const matchedPath = filePaths.find(path => {
+            const relPath = path.replace(/\\/g, '/');
+            return cleaned === relPath || cleaned.endsWith('/' + relPath) || cleaned.endsWith(relPath);
+          });
+          
+          if (matchedPath) {
+            detectedPaths.push(matchedPath);
+            break;
+          }
+          container = container.parentElement;
+        }
+      }
+    }
+    
+    const uniquePaths = [...new Set(detectedPaths)];
+    modified.push(...uniquePaths);
+  } catch (err) {
+    console.error('Error scanning modified files in DOM (no click):', err);
+  }
+  return modified;
+}
+
+let lastSentChangesStr = '';
+
+// Periodic detector for Git tab visibility
+setInterval(async () => {
+  if (!window.location.hostname.includes('aistudio.google.com')) return;
+  if (!lastWorkspaceFilePaths || lastWorkspaceFilePaths.length === 0) return;
+  
+  const statusLabels = Array.from(document.querySelectorAll('span, div, p, badge, mat-chip'));
+  const gitStatuses = ['Modified', 'Added', 'Deleted', 'Untracked', 'modified', 'added', 'deleted', 'untracked'];
+  const hasVisibleStatus = statusLabels.some(label => label.offsetParent !== null && gitStatuses.includes(label.textContent ? label.textContent.trim() : ''));
+  
+  if (hasVisibleStatus) {
+    const changes = await scrapeGitChangesNoClick(lastWorkspaceFilePaths);
+    if (changes && changes.length > 0) {
+      const changesStr = changes.sort().join(',');
+      if (changesStr !== lastSentChangesStr) {
+        lastSentChangesStr = changesStr;
+        chrome.runtime.sendMessage({
+          action: 'gitTabOpenedWithChanges',
+          changes: changes
+        }).catch(() => {});
+      }
+    }
+  } else {
+    lastSentChangesStr = '';
+  }
+}, 3000);
+
+document.addEventListener('click', (e) => {
+  if (!window.location.hostname.includes('aistudio.google.com')) return;
+  const btn = e.target.closest('button, a, div[role="tab"], .mat-tab-label, .mat-focus-indicator, mat-tab-header div');
+  if (btn) {
+    const text = btn.textContent.toLowerCase();
+    if (text.includes('github') || text.includes('git hub') || text.includes('sync to github')) {
+      setTimeout(async () => {
+        if (!lastWorkspaceFilePaths || lastWorkspaceFilePaths.length === 0) return;
+        const changes = await scrapeGitChangesNoClick(lastWorkspaceFilePaths);
+        if (changes && changes.length > 0) {
+          const changesStr = changes.sort().join(',');
+          lastSentChangesStr = changesStr;
+          chrome.runtime.sendMessage({
+            action: 'gitTabOpenedWithChanges',
+            changes: changes
+          }).catch(() => {});
+        }
+      }, 1000);
+    }
+  }
+});
+

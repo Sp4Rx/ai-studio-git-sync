@@ -69,18 +69,28 @@ graph TD
 *   Once matched, it calls `activeEditor.setValue(text)` and dispatches a programmatic `Ctrl+S` keyboard event to the editor's textarea, triggering the app's internal auto-save hooks.
 *   If the Monaco API fails, the script automatically falls back to DOM textarea insertion.
 
-### 5. Advanced Simulated File Upload (New Files)
-For new files that do not exist yet in the Web IDE workspace, the extension falls back to a simulated drag-and-drop file upload:
-*   **CDK Event Mocking**: Angular CDK drag-and-drop (`cdkdroplist`) checks that `event.dataTransfer.types` contains `'Files'` and that `event.dataTransfer.files` contains items. Chrome blocks setting these on synthetic events for security. We bypass this by overriding the getters of the `DataTransfer` instance via `Object.defineProperty`.
-*   **`webkitGetAsEntry` Mocking**: Modern Web IDEs check `item.webkitGetAsEntry()` to support folder structure uploads. We mock `webkitGetAsEntry` to return a fake `FileSystemFileEntry` object containing the file content and its relative path.
-*   **Dynamic Inputs / Overlay Triggering**: The script dispatches `dragenter` and `dragover` events to trigger the app's dynamic upload overlays, waits **100ms** for any dynamic file inputs to render, feeds the file directly into native `<input type="file">` tags using a clean `DataTransfer` instance, and fires the final `drop` event to complete the upload.
+### 5. Advanced Programmatic File Upload & Directory Simulation (New Files)
+For new files that do not exist yet in the Web IDE workspace, the extension simulates a native drag-and-drop file upload directly onto the root file tree container:
+*   **The Subfolder Upload Challenge**: Initially, uploading a nested file (like `src/lib/delete_me.ts`) would place it in the project root or fail to upload. This happened because Google AI Studio uses Angular CDK's drag-and-drop uploader. When files or folders are dropped, the uploader calls `item.webkitGetAsEntry()` to determine the item type:
+    *   If it encounters a `FileEntry` (`isFile: true`), it reads the file name but ignores the subfolder paths in `fullPath` or `webkitRelativePath`.
+    *   If it encounters a `DirectoryEntry` (`isDirectory: true`), it recursively traverses directory contents by calling `createReader().readEntries()`.
+*   **Decoding & Directory Tree Mocking**: We resolved this by building a recursive JavaScript structure representing the file's path:
+    *   For folders (`src`, `lib`), the mock returns a `DirectoryEntry` (`isDirectory: true`, `isFile: false`) and implements `createReader().readEntries()` to yield its children.
+    *   For the file (`delete_me.ts`), the mock returns a `FileEntry` (`isFile: true`, `isDirectory: false`) and implements `file()` to return the actual `File` object.
+*   **Bypassing Native DataTransfer Constraints**: Modern browsers prevent editing `DataTransferItem` properties (like `webkitGetAsEntry`) on native `DataTransfer` objects due to security restrictions. We bypassed this by constructing a **plain JavaScript mock DataTransfer** object. When we dispatch synthetic `dragenter`, `dragover`, and `drop` events on the root `mat-tree` container, we override their `dataTransfer` property to return our custom mock, allowing Angular CDK's event handlers to recursively traverse the folders as if a real OS folder was dropped.
+*   **Eliminating Manual "Drag Me" Fallbacks**: With this directory traversal simulation fully implemented, programmatic drops on the root container automatically recreate the nested directory structure relative to the project root. This made the extension fully automated, eliminating the need for manual "Drag Me" widget helpers!
 
 ### 6. Project-Scoped Workspaces & Tab-Level Domain Restriction
-*   **Domain Restriction**: The extension is built to run exclusively on Google AI Studio. By omitting `default_path` in `manifest.json` and managing paths programmatically, the service worker enables the side panel and active toolbar actions **only** on tabs with `aistudio.google.com`. When navigating to other domains (e.g. `google.com`), the extension icon grays out and the side panel automatically closes/hides.
+*   **Domain & Path Restriction**: The extension is built to run exclusively on Google AI Studio. The popup logic verifies that the active tab is not only on `aistudio.google.com` but specifically editing an app (matching the path `/apps/<app-id>`). If the user is on the home or dashboard page, it displays a friendly guidance card to open a project, preventing unnecessary background activity.
 *   **Scope Memory**: Instead of using a single global folder handle, `popup.js` parses the active URL's project app ID (e.g., `/apps/<app-id>`) and creates a unique storage key (`workspaceHandle_${appId}`).
 *   **Auto-Update on Switch**: The side panel registers listeners for tab changes (`chrome.tabs.onActivated`) and loading (`chrome.tabs.onUpdated`). Switching between different tabs instantly refreshes the folder and files shown in the side panel according to the active project.
 *   **Auto-Save Toggle**: Introduces an "Auto Save changes" switch in the extension header. When enabled, syncing changes programmatically triggers Monaco save shortcuts (`Ctrl+S`) and clicks the workspace-wide bottom "Save" button. When disabled, the files are synced to the editors but require the user to review and press "Save" manually.
 *   **Collapsible Folder Tree**: Replaces the flat file list with a high-fidelity hierarchical tree structure mimicking a code editor's sidebar. Folders can be expanded and collapsed dynamically by clicking, directories are sorted before files, and indentations are guided by visual dashed lines. Includes "Expand All" and "Collapse All" actions.
+*   **Targeted Diff Scan & Sync**:
+    *   **Auto Git-Tab Detection**: Passively listens for click/observer events when the native "Sync to GitHub" tab is opened inside Google AI Studio.
+    *   **Targeted Scan Prompt**: Prompts the user with a non-intrusive alert popup to run a Diff Check strictly for the changed files shown in the Git tab, bypassing clean/unmodified files entirely for faster performance.
+    *   **Bulk Sync Progress Overlay**: Locks the UI during bulk sync operations, displaying a detailed list of file states that auto-scrolls to keep the currently syncing item in view. Includes a "Cancel" action to abort the sync.
+    *   **Automated Tab Cleanup**: Automatically closes programmatic file tabs opened in the editor during scanning or syncing, maintaining a clean Workspace tab bar.
 *   **Dual Mode Sync (Local vs. GitHub)**:
     *   **Local Workspace**: Select a folder locally using the browser's File System Access API.
     *   **GitHub Sync**: Connect to GitHub to retrieve the latest repository changes directly from the server.
