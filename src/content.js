@@ -6,11 +6,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'syncFile') {
     const displayPath = request.filePath || request.fileName;
     console.log(`Received file sync request for: ${displayPath}`);
-    handleSync(request.fileName, request.filePath, request.fileType, request.fileData);
+    handleSync(request.fileName, request.filePath, request.fileType, request.fileData, request.autoSave);
   }
 });
 
-async function handleSync(fileName, filePath, fileType, fileDataBase64) {
+async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave) {
   try {
     // Decode base64 back to array buffer / Blob
     const binaryString = atob(fileDataBase64);
@@ -41,17 +41,38 @@ async function handleSync(fileName, filePath, fileType, fileDataBase64) {
         console.warn(`File open failed (${err.message}). Attempting to upload via drop...`);
         // Fall back to drag and drop to upload new files
         await simulateFileDrop(file, filePath);
+        
+        if (autoSave) {
+          // Wait 1.5s for the app to register the drop and render files
+          await new Promise(r => setTimeout(r, 1500));
+          try {
+            await openFileInTree(filePath);
+          } catch (e) {
+            console.warn("Could not open newly created file in tree:", e);
+          }
+          triggerWorkspaceSave();
+        } else {
+          console.log('Auto-save is disabled. Skipping save for new file upload.');
+        }
         return;
       }
       
       const text = await file.text();
-      await updateWebEditorWithFallback(fileName, text);
+      await updateWebEditorWithFallback(fileName, text, autoSave);
       
-      // Auto-click the bottom workspace "Save" button if it appears
-      triggerWorkspaceSave();
+      if (autoSave) {
+        // Auto-click the bottom workspace "Save" button if it appears
+        triggerWorkspaceSave();
+      } else {
+        console.log('Auto-save is disabled. Skipping workspace save click.');
+      }
     } else {
       console.log('Binary file or no path. Simulating drag and drop upload...');
       await simulateFileDrop(file, filePath);
+      if (autoSave) {
+        await new Promise(r => setTimeout(r, 1500));
+        triggerWorkspaceSave();
+      }
     }
   } catch (error) {
     console.error(`Error processing file ${filePath || fileName}:`, error);
@@ -137,7 +158,7 @@ async function openFileInTree(filePath) {
 }
 
 // Update editor by communicating with the MAIN world page-context script (bypassing CSP)
-async function updateWebEditorWithFallback(fileName, newText) {
+async function updateWebEditorWithFallback(fileName, newText, autoSave) {
   try {
     console.log('Attempting MAIN world page-context Monaco update...');
     await new Promise((resolve, reject) => {
@@ -161,18 +182,18 @@ async function updateWebEditorWithFallback(fileName, newText) {
       window.addEventListener('SyncFileToMonacoResult', handler);
       
       window.dispatchEvent(new CustomEvent('SyncFileToMonaco', {
-        detail: { fileName, fileText: newText }
+        detail: { fileName, fileText: newText, autoSave }
       }));
     });
     console.log('Monaco page-context update succeeded.');
   } catch (err) {
     console.warn(`Monaco API update failed: ${err.message}. Falling back to DOM injection...`);
-    await updateWebEditorDOM(newText);
+    await updateWebEditorDOM(newText, autoSave);
   }
 }
 
 // Fallback DOM-based injection
-async function updateWebEditorDOM(newText) {
+async function updateWebEditorDOM(newText, autoSave) {
   const editorTextArea = document.querySelector('.monaco-editor textarea, .cm-content, textarea.ace_text-input, [role="textbox"][aria-multiline="true"]'); 
   
   if (!editorTextArea) {
@@ -196,17 +217,21 @@ async function updateWebEditorDOM(newText) {
     document.execCommand('insertText', false, newText);
   }
 
-  const saveEvent = new KeyboardEvent('keydown', {
-    key: 's',
-    code: 'KeyS',
-    ctrlKey: true,
-    metaKey: true,
-    bubbles: true,
-    cancelable: true
-  });
-  
-  editorTextArea.dispatchEvent(saveEvent);
-  console.log('Ctrl+S dispatched.');
+  if (autoSave !== false) {
+    const saveEvent = new KeyboardEvent('keydown', {
+      key: 's',
+      code: 'KeyS',
+      ctrlKey: true,
+      metaKey: true,
+      bubbles: true,
+      cancelable: true
+    });
+    
+    editorTextArea.dispatchEvent(saveEvent);
+    console.log('Ctrl+S dispatched.');
+  } else {
+    console.log('Auto-save disabled. Skipping DOM Ctrl+S dispatch.');
+  }
 }
 
 // Auto-clicks the workspace "Save" button in the bottom commit/change toolbar (with polling)

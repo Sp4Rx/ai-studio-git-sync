@@ -62,6 +62,9 @@ For new files that do not exist yet in the Web IDE workspace, the extension fall
 *   **Domain Restriction**: The extension is built to run exclusively on Google AI Studio. By omitting `default_path` in `manifest.json` and managing paths programmatically, the service worker enables the side panel and active toolbar actions **only** on tabs with `aistudio.google.com`. When navigating to other domains (e.g. `google.com`), the extension icon grays out and the side panel automatically closes/hides.
 *   **Scope Memory**: Instead of using a single global folder handle, `popup.js` parses the active URL's project app ID (e.g., `/apps/<app-id>`) and creates a unique storage key (`workspaceHandle_${appId}`).
 *   **Auto-Update on Switch**: The side panel registers listeners for tab changes (`chrome.tabs.onActivated`) and loading (`chrome.tabs.onUpdated`). Switching between different tabs instantly refreshes the folder and files shown in the side panel according to the active project.
+*   **Auto-Save Toggle**: Introduces an "Auto Save changes" switch in the extension header. When enabled, syncing changes programmatically triggers Monaco save shortcuts (`Ctrl+S`) and clicks the workspace-wide bottom "Save" button. When disabled, the files are synced to the editors but require the user to review and press "Save" manually.
+*   **Collapsible Folder Tree**: Replaces the flat file list with a high-fidelity hierarchical tree structure mimicking a code editor's sidebar. Folders can be expanded and collapsed dynamically by clicking, directories are sorted before files, and indentations are guided by visual dashed lines.
+
 
 
 ---

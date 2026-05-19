@@ -8,6 +8,21 @@ const refreshBtn = document.getElementById('refreshBtn');
 const statusDiv = document.getElementById('status');
 const workspaceInfo = document.getElementById('workspaceInfo');
 const fileListDiv = document.getElementById('fileList');
+const autoSaveToggle = document.getElementById('autoSaveToggle');
+
+// Load stored autosave preference
+chrome.storage.local.get({ autoSaveEnabled: true }, (res) => {
+  if (autoSaveToggle) {
+    autoSaveToggle.checked = res.autoSaveEnabled;
+  }
+});
+
+// Save autosave preference when changed
+if (autoSaveToggle) {
+  autoSaveToggle.addEventListener('change', () => {
+    chrome.storage.local.set({ autoSaveEnabled: autoSaveToggle.checked });
+  });
+}
 
 function showStatus(message, isError = false) {
   statusDiv.textContent = message;
@@ -122,39 +137,122 @@ async function listFiles(dirHandle) {
     }
 
     await scan(dirHandle);
-    
-    // Sort files alphabetically
-    files.sort((a, b) => a.path.localeCompare(b.path));
-
-    if (files.length === 0) {
-      fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">No files found</div>';
-      showStatus('Workspace loaded.');
-      return;
-    }
-
-    files.forEach(fileInfo => {
-      const item = document.createElement('div');
-      item.className = 'file-item';
-      
-      const span = document.createElement('span');
-      span.textContent = fileInfo.path;
-      span.title = fileInfo.path;
-      
-      const btn = document.createElement('button');
-      btn.className = 'sync-btn-small';
-      btn.textContent = 'Sync';
-      btn.addEventListener('click', () => syncSingleFile(fileInfo.handle, fileInfo.path));
-      
-      item.appendChild(span);
-      item.appendChild(btn);
-      fileListDiv.appendChild(item);
-    });
-    
+    buildAndRenderTree(files, fileListDiv);
     showStatus('Workspace loaded. Choose a file to sync.');
   } catch (err) {
     console.error(err);
     showStatus(`Failed to read files: ${err.message}`, true);
   }
+}
+
+function buildAndRenderTree(files, container) {
+  container.innerHTML = '';
+  
+  if (files.length === 0) {
+    container.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">No files found</div>';
+    return;
+  }
+
+  // 1. Build nested tree structure
+  const tree = {};
+  files.forEach(file => {
+    const parts = file.path.split('/');
+    let current = tree;
+    parts.forEach((part, index) => {
+      const isFile = index === parts.length - 1;
+      if (!current[part]) {
+        current[part] = isFile ? { _file: file } : { _dir: {} };
+      }
+      current = isFile ? current[part] : current[part]._dir;
+    });
+  });
+
+  // 2. Recursive renderer
+  function render(nodeName, node, parentEl, depth) {
+    if (node._file) {
+      // File Node
+      const fileInfo = node._file;
+      const fileItem = document.createElement('div');
+      fileItem.className = 'tree-file';
+      
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'tree-file-name';
+      nameSpan.textContent = `📄 ${nodeName}`;
+      nameSpan.title = fileInfo.path;
+      
+      const btn = document.createElement('button');
+      btn.className = 'sync-btn-small';
+      btn.textContent = 'Sync';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        syncSingleFile(fileInfo.handle, fileInfo.path);
+      });
+      
+      fileItem.appendChild(nameSpan);
+      fileItem.appendChild(btn);
+      parentEl.appendChild(fileItem);
+    } else {
+      // Directory Node
+      const folderItem = document.createElement('div');
+      folderItem.className = 'tree-folder';
+      
+      const arrow = document.createElement('span');
+      arrow.className = 'tree-folder-arrow';
+      arrow.textContent = '▼';
+      arrow.style.marginRight = '6px';
+      arrow.style.fontSize = '9px';
+      arrow.style.display = 'inline-block';
+      arrow.style.width = '10px';
+      
+      const folderName = document.createElement('span');
+      folderName.textContent = `📁 ${nodeName}`;
+      
+      folderItem.appendChild(arrow);
+      folderItem.appendChild(folderName);
+      
+      const childrenContainer = document.createElement('div');
+      childrenContainer.className = 'tree-folder-children';
+      
+      folderItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const collapsed = childrenContainer.style.display === 'none';
+        childrenContainer.style.display = collapsed ? 'block' : 'none';
+        arrow.textContent = collapsed ? '▼' : '▶';
+        arrow.style.transform = collapsed ? 'none' : 'rotate(-90deg)';
+      });
+      
+      parentEl.appendChild(folderItem);
+      parentEl.appendChild(childrenContainer);
+      
+      // Sort keys: folders first, then files alphabetically
+      const keys = Object.keys(node._dir || {});
+      keys.sort((a, b) => {
+        const aIsDir = !node._dir[a]._file;
+        const bIsDir = !node._dir[b]._file;
+        if (aIsDir && !bIsDir) return -1;
+        if (!aIsDir && bIsDir) return 1;
+        return a.localeCompare(b);
+      });
+      
+      keys.forEach(key => {
+        render(key, node._dir[key], childrenContainer, depth + 1);
+      });
+    }
+  }
+
+  // Render root level keys
+  const rootKeys = Object.keys(tree);
+  rootKeys.sort((a, b) => {
+    const aIsDir = !tree[a]._file;
+    const bIsDir = !tree[b]._file;
+    if (aIsDir && !bIsDir) return -1;
+    if (!aIsDir && bIsDir) return 1;
+    return a.localeCompare(b);
+  });
+  
+  rootKeys.forEach(key => {
+    render(key, tree[key], container, 0);
+  });
 }
 
 async function syncSingleFile(fileHandle, relativePath) {
@@ -175,15 +273,22 @@ async function syncSingleFile(fileHandle, relativePath) {
       throw new Error('No active tab found.');
     }
 
+    const autoSave = autoSaveToggle ? autoSaveToggle.checked : true;
+
     try {
       await chrome.tabs.sendMessage(tab.id, {
         action: 'syncFile',
         fileName: file.name,
         filePath: relativePath,
         fileType: file.type,
-        fileData: base64
+        fileData: base64,
+        autoSave: autoSave
       });
-      showStatus(`Synced: ${relativePath}`);
+      if (autoSave) {
+        showStatus(`Synced and autosaved: ${relativePath}`);
+      } else {
+        showStatus(`Synced: ${relativePath} (Press Save in Web IDE to save)`);
+      }
     } catch (err) {
       throw new Error('Content script not found. Please refresh the Web IDE tab and try again.');
     }

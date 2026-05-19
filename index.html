@@ -106,6 +106,106 @@
       .controls .btn {
         flex: 1;
       }
+      
+      /* Auto Save Toggle styles */
+      .toggle-container {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 13px;
+        background-color: #f1f3f5;
+        padding: 8px 12px;
+        border-radius: 4px;
+        border: 1px solid #e9ecef;
+      }
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 32px;
+        height: 18px;
+        margin-right: 10px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ced4da;
+        transition: .3s;
+        border-radius: 18px;
+      }
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 12px;
+        width: 12px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: .3s;
+        border-radius: 50%;
+      }
+      input:checked + .slider {
+        background-color: #0d6efd;
+      }
+      input:checked + .slider:before {
+        transform: translateX(14px);
+      }
+      .toggle-label {
+        user-select: none;
+        color: #495057;
+        font-weight: 500;
+      }
+
+      /* Collapsible Tree styles */
+      .tree-folder {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid #f1f3f5;
+        color: #343a40;
+      }
+      .tree-folder:hover {
+        background-color: #f1f3f5;
+      }
+      .tree-folder-arrow {
+        color: #6c757d;
+        transition: transform 0.15s ease;
+      }
+      .tree-folder-children {
+        border-left: 1px dashed #dee2e6;
+        margin-left: 17px;
+        padding-left: 2px;
+      }
+      .tree-file {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 12px;
+        font-size: 13px;
+        border-bottom: 1px solid #f1f3f5;
+      }
+      .tree-file:hover {
+        background-color: #f8f9fa;
+      }
+      .tree-file-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 65%;
+        color: #495057;
+      }
     </style>
   </head>
   <body>
@@ -113,6 +213,14 @@
     
     <div id="workspaceInfo" class="workspace-info">No workspace selected</div>
     
+    <div class="toggle-container">
+      <label class="switch">
+        <input type="checkbox" id="autoSaveToggle" checked>
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-label">Auto Save changes</span>
+    </div>
+
     <div class="controls">
       <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
       <button id="refreshBtn" class="btn btn-secondary" style="display: none;">Refresh</button>
