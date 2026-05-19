@@ -1,7 +1,9 @@
 import { saveHandle, getHandle } from './idb-helper.js';
 
 let currentHandle = null;
+let sourceMode = 'local'; // 'local' or 'github'
 
+// DOM Elements
 const selectWorkspaceBtn = document.getElementById('selectWorkspaceBtn');
 const syncBtn = document.getElementById('syncBtn');
 const refreshBtn = document.getElementById('refreshBtn');
@@ -12,6 +14,17 @@ const autoSaveToggle = document.getElementById('autoSaveToggle');
 const treeActionsDiv = document.getElementById('treeActions');
 const expandAllBtn = document.getElementById('expandAllBtn');
 const collapseAllBtn = document.getElementById('collapseAllBtn');
+
+const tabLocal = document.getElementById('tabLocal');
+const tabGitHub = document.getElementById('tabGitHub');
+const localPanel = document.getElementById('localPanel');
+const githubPanel = document.getElementById('githubPanel');
+
+const gitRepoInput = document.getElementById('gitRepo');
+const gitBranchInput = document.getElementById('gitBranch');
+const gitTokenInput = document.getElementById('gitToken');
+const gitFetchBtn = document.getElementById('gitFetchBtn');
+const gitDetectBtn = document.getElementById('gitDetectBtn');
 
 // Load stored autosave preference
 chrome.storage.local.get({ autoSaveEnabled: true }, (res) => {
@@ -55,7 +68,7 @@ function getAppId(url) {
 async function getStorageKey() {
   const tab = await getActiveTab();
   const appId = tab ? getAppId(tab.url) : null;
-  return appId ? `workspaceHandle_${appId}` : 'workspaceHandle_default';
+  return appId ? appId : 'default';
 }
 
 async function verifyPermission(handle, readWrite) {
@@ -87,41 +100,94 @@ async function initWorkspace() {
       return;
     }
 
-    const key = await getStorageKey();
-    currentHandle = await getHandle(key);
+    const appIdKey = await getStorageKey();
     
-    if (currentHandle) {
-      const permission = await currentHandle.queryPermission({ mode: 'read' });
-      if (permission === 'granted') {
-        workspaceInfo.textContent = `Selected: ${currentHandle.name}`;
-        syncBtn.style.display = 'none';
-        refreshBtn.style.display = 'block';
-        showStatus('Reading files...');
-        await listFiles(currentHandle);
+    // Retrieve stored source mode for this project
+    const storedModeRes = await new Promise(resolve => {
+      chrome.storage.local.get([`sourceMode_${appIdKey}`], res => {
+        resolve(res[`sourceMode_${appIdKey}`] || 'local');
+      });
+    });
+    
+    sourceMode = storedModeRes;
+    
+    // Toggle active tab buttons and panels
+    if (sourceMode === 'local') {
+      tabLocal.classList.add('active');
+      tabGitHub.classList.remove('active');
+      localPanel.classList.add('active');
+      githubPanel.classList.remove('active');
+      
+      currentHandle = await getHandle(`workspaceHandle_${appIdKey}`);
+      if (currentHandle) {
+        const permission = await currentHandle.queryPermission({ mode: 'read' });
+        if (permission === 'granted') {
+          workspaceInfo.textContent = `Selected: ${currentHandle.name}`;
+          syncBtn.style.display = 'none';
+          refreshBtn.style.display = 'block';
+          showStatus('Reading files...');
+          await listFiles(currentHandle);
+        } else {
+          workspaceInfo.textContent = `Needs permission: ${currentHandle.name}`;
+          syncBtn.style.display = 'block';
+          refreshBtn.style.display = 'none';
+          fileListDiv.innerHTML = '';
+          if (treeActionsDiv) {
+            treeActionsDiv.style.display = 'none';
+          }
+          showStatus('Permission required to read files.', true);
+        }
       } else {
-        workspaceInfo.textContent = `Needs permission: ${currentHandle.name}`;
-        syncBtn.style.display = 'block';
+        workspaceInfo.textContent = 'No Workspace Selected';
+        syncBtn.style.display = 'none';
         refreshBtn.style.display = 'none';
-        fileListDiv.innerHTML = '';
         if (treeActionsDiv) {
           treeActionsDiv.style.display = 'none';
         }
-        showStatus('Permission required to read files.', true);
+        fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Please select a local workspace for this project.</div>';
+        showStatus('Ready.');
       }
     } else {
-      workspaceInfo.textContent = 'No Workspace Selected';
+      tabLocal.classList.remove('active');
+      tabGitHub.classList.add('active');
+      localPanel.classList.remove('active');
+      githubPanel.classList.add('active');
+      
+      workspaceInfo.textContent = 'GitHub Sync Mode';
       syncBtn.style.display = 'none';
       refreshBtn.style.display = 'none';
-      if (treeActionsDiv) {
-        treeActionsDiv.style.display = 'none';
+      
+      const githubConfig = await new Promise(resolve => {
+        chrome.storage.local.get([`githubConfig_${appIdKey}`], res => {
+          resolve(res[`githubConfig_${appIdKey}`] || null);
+        });
+      });
+      
+      if (githubConfig) {
+        gitRepoInput.value = githubConfig.repo || '';
+        gitBranchInput.value = githubConfig.branch || 'main';
+        gitTokenInput.value = githubConfig.token || '';
+        if (githubConfig.repo) {
+          fetchGitHubTree();
+        }
+      } else {
+        gitRepoInput.value = '';
+        gitBranchInput.value = 'main';
+        gitTokenInput.value = '';
+        autoDetectGit();
       }
-      fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Please select a local workspace for this project.</div>';
-      showStatus('Ready.');
     }
   } catch (error) {
     console.error('Failed to load handle:', error);
     showStatus('Failed to load saved workspace.', true);
   }
+}
+
+async function setSourceMode(mode) {
+  sourceMode = mode;
+  const appIdKey = await getStorageKey();
+  chrome.storage.local.set({ [`sourceMode_${appIdKey}`]: mode });
+  initWorkspace();
 }
 
 async function listFiles(dirHandle) {
@@ -274,18 +340,66 @@ function buildAndRenderTree(files, container) {
   });
 }
 
+function getMimeType(fileName) {
+  const ext = fileName.split('.').pop().toLowerCase();
+  switch (ext) {
+    case 'js': return 'text/javascript';
+    case 'ts': return 'text/typescript';
+    case 'tsx': return 'text/typescript';
+    case 'json': return 'application/json';
+    case 'html': return 'text/html';
+    case 'css': return 'text/css';
+    case 'md': return 'text/markdown';
+    case 'png': return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    default: return 'text/plain';
+  }
+}
+
 async function syncSingleFile(fileHandle, relativePath) {
   showStatus(`Syncing: ${relativePath}...`);
   try {
-    const file = await fileHandle.getFile();
-    
-    // Use FileReader for non-blocking Async base64 conversion
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = (e) => reject(e);
-      reader.readAsDataURL(file);
-    });
+    let base64 = '';
+    let fileName = relativePath.split('/').pop();
+    let fileType = getMimeType(fileName);
+
+    if (fileHandle.git) {
+      // Fetch raw content from GitHub using Blobs API
+      const headers = {
+        'Accept': 'application/vnd.github.raw'
+      };
+      const tokenVal = gitTokenInput.value.trim();
+      if (tokenVal) {
+        headers['Authorization'] = `token ${tokenVal}`;
+      }
+      
+      const res = await fetch(fileHandle.url, { headers });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch file from GitHub (HTTP ${res.status})`);
+      }
+      
+      const arrayBuffer = await res.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      base64 = btoa(binary);
+    } else {
+      // Local Workspace Mode
+      const file = await fileHandle.getFile();
+      fileName = file.name;
+      fileType = file.type;
+      
+      base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      });
+    }
 
     const tab = await getActiveTab();
     if (!tab) {
@@ -297,9 +411,9 @@ async function syncSingleFile(fileHandle, relativePath) {
     try {
       await chrome.tabs.sendMessage(tab.id, {
         action: 'syncFile',
-        fileName: file.name,
+        fileName: fileName,
         filePath: relativePath,
-        fileType: file.type,
+        fileType: fileType,
         fileData: base64,
         autoSave: autoSave
       });
@@ -314,6 +428,108 @@ async function syncSingleFile(fileHandle, relativePath) {
   } catch (error) {
     console.error(error);
     showStatus(`Sync error: ${error.message}`, true);
+  }
+}
+
+async function fetchGitHubTree() {
+  const repoVal = gitRepoInput.value.trim();
+  const branchVal = gitBranchInput.value.trim();
+  const tokenVal = gitTokenInput.value.trim();
+
+  if (!repoVal) {
+    showStatus('Repository owner/repo is required.', true);
+    return;
+  }
+  if (!branchVal) {
+    showStatus('Branch is required.', true);
+    return;
+  }
+
+  showStatus('Fetching repository tree from GitHub...');
+  fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Loading files from GitHub...</div>';
+  
+  try {
+    const headers = {};
+    if (tokenVal) {
+      headers['Authorization'] = `token ${tokenVal}`;
+    }
+    
+    // Save settings
+    const appIdKey = await getStorageKey();
+    chrome.storage.local.set({
+      [`githubConfig_${appIdKey}`]: { repo: repoVal, branch: branchVal, token: tokenVal }
+    });
+
+    const res = await fetch(`https://api.github.com/repos/${repoVal}/git/trees/${branchVal}?recursive=1`, { headers });
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error('Repository or Branch not found. Make sure it is correct and public, or provide a Personal Access Token.');
+      }
+      throw new Error(`GitHub API returned HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data.tree || !Array.isArray(data.tree)) {
+      throw new Error('Invalid response from GitHub API tree endpoint.');
+    }
+
+    const files = [];
+    data.tree.forEach(item => {
+      if (item.type === 'blob') {
+        const parts = item.path.split('/');
+        const hasIgnoredSegment = parts.some(part => 
+          part.startsWith('.') || 
+          part === 'node_modules' || 
+          part === 'dist' || 
+          part === 'build' ||
+          part === 'package-lock.json'
+        );
+        if (!hasIgnoredSegment) {
+          files.push({
+            handle: {
+              git: true,
+              sha: item.sha,
+              url: item.url,
+              path: item.path
+            },
+            path: item.path
+          });
+        }
+      }
+    });
+
+    buildAndRenderTree(files, fileListDiv);
+    showStatus(`Fetched ${files.length} files from GitHub. Choose a file to sync.`);
+  } catch (err) {
+    console.error(err);
+    showStatus(`GitHub Fetch Error: ${err.message}`, true);
+    fileListDiv.innerHTML = `<div style="padding: 10px; text-align: center; color: #dc3545;">Failed to load files: ${err.message}</div>`;
+    if (treeActionsDiv) {
+      treeActionsDiv.style.display = 'none';
+    }
+  }
+}
+
+async function autoDetectGit() {
+  const tab = await getActiveTab();
+  if (!tab) return;
+  
+  showStatus('Attempting to auto-detect GitHub repo...');
+  try {
+    const res = await chrome.tabs.sendMessage(tab.id, { action: 'detectGit' });
+    if (res && res.gitInfo) {
+      gitRepoInput.value = res.gitInfo.repo || '';
+      gitBranchInput.value = res.gitInfo.branch || 'main';
+      showStatus(`Auto-detected: ${res.gitInfo.repo} on ${res.gitInfo.branch}`);
+      
+      // Auto fetch after successful detection
+      fetchGitHubTree();
+    } else {
+      showStatus('Could not auto-detect Git settings. Please enter them manually.');
+    }
+  } catch (err) {
+    console.warn('Failed to contact content script for Git auto-detection:', err);
+    showStatus('Please make sure you have the Git panel open in AI Studio to auto-detect.', true);
   }
 }
 
@@ -347,12 +563,13 @@ function collapseAll() {
   });
 }
 
+// Event Listeners
 selectWorkspaceBtn.addEventListener('click', async () => {
   try {
     const handle = await window.showDirectoryPicker({ mode: 'read' });
     currentHandle = handle;
     const key = await getStorageKey();
-    await saveHandle(key, handle);
+    await saveHandle(`workspaceHandle_${key}`, handle);
     
     workspaceInfo.textContent = `Selected: ${handle.name}`;
     syncBtn.style.display = 'none';
@@ -392,6 +609,11 @@ if (expandAllBtn) {
 if (collapseAllBtn) {
   collapseAllBtn.addEventListener('click', collapseAll);
 }
+
+tabLocal.addEventListener('click', () => setSourceMode('local'));
+tabGitHub.addEventListener('click', () => setSourceMode('github'));
+gitFetchBtn.addEventListener('click', fetchGitHubTree);
+gitDetectBtn.addEventListener('click', autoDetectGit);
 
 // Tab listeners to automatically update popup state when the active project or page changes
 chrome.tabs.onActivated.addListener(() => {

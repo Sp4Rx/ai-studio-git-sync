@@ -63,9 +63,13 @@ For new files that do not exist yet in the Web IDE workspace, the extension fall
 *   **Scope Memory**: Instead of using a single global folder handle, `popup.js` parses the active URL's project app ID (e.g., `/apps/<app-id>`) and creates a unique storage key (`workspaceHandle_${appId}`).
 *   **Auto-Update on Switch**: The side panel registers listeners for tab changes (`chrome.tabs.onActivated`) and loading (`chrome.tabs.onUpdated`). Switching between different tabs instantly refreshes the folder and files shown in the side panel according to the active project.
 *   **Auto-Save Toggle**: Introduces an "Auto Save changes" switch in the extension header. When enabled, syncing changes programmatically triggers Monaco save shortcuts (`Ctrl+S`) and clicks the workspace-wide bottom "Save" button. When disabled, the files are synced to the editors but require the user to review and press "Save" manually.
-*   **Collapsible Folder Tree**: Replaces the flat file list with a high-fidelity hierarchical tree structure mimicking a code editor's sidebar. Folders can be expanded and collapsed dynamically by clicking, directories are sorted before files, and indentations are guided by visual dashed lines.
-
-
+*   **Collapsible Folder Tree**: Replaces the flat file list with a high-fidelity hierarchical tree structure mimicking a code editor's sidebar. Folders can be expanded and collapsed dynamically by clicking, directories are sorted before files, and indentations are guided by visual dashed lines. Includes "Expand All" and "Collapse All" actions.
+*   **Dual Mode Sync (Local vs. GitHub)**:
+    *   **Local Workspace**: Select a folder locally using the browser's File System Access API.
+    *   **GitHub Sync**: Connect to GitHub to retrieve the latest repository changes directly from the server.
+    *   **Auto-Detection**: Scans the active AI Studio tab's DOM for Git configuration (e.g. `owner/repo on branch` in the Git pane) and automatically configures the sync target.
+    *   **Private Repositories**: Supports entering an optional Personal Access Token (PAT) for private repositories.
+    *   **Recursive File Tree**: Fetches repo structure via the GitHub Git Trees API and syncs files on-demand using the Git Blobs API.
 
 ---
 

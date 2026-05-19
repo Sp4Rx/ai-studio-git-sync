@@ -7,8 +7,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const displayPath = request.filePath || request.fileName;
     console.log(`Received file sync request for: ${displayPath}`);
     handleSync(request.fileName, request.filePath, request.fileType, request.fileData, request.autoSave);
+    sendResponse({ success: true });
+  } else if (request.action === 'detectGit') {
+    const gitInfo = detectGitHubInfo();
+    sendResponse({ gitInfo });
   }
+  return true;
 });
+
+function detectGitHubInfo() {
+  const regex = /([\w\-\.]+)\/([\w\-\.]+) on ([\w\-\.\/]+)/;
+  const elements = document.querySelectorAll('a, button, span, div, p, h1, h2, h3');
+  for (const el of elements) {
+    if (el.children.length === 0 || (el.children.length === 1 && el.firstElementChild.tagName === 'SPAN')) {
+      const text = el.textContent.trim();
+      const match = text.match(regex);
+      if (match) {
+        const repo = `${match[1]}/${match[2]}`;
+        const branch = match[3];
+        console.log(`Content Script: Auto-detected GitHub Repository: "${repo}", Branch: "${branch}"`);
+        return { repo, branch };
+      }
+    }
+  }
+  
+  const bodyText = document.body.innerText || '';
+  const multiLineRegex = /([\w\-\.]+)\/([\w\-\.]+)\s+on\s+([\w\-\.\/]+)/i;
+  const multiLineMatch = bodyText.match(multiLineRegex);
+  if (multiLineMatch) {
+    const repo = `${multiLineMatch[1]}/${multiLineMatch[2]}`;
+    const branch = multiLineMatch[3];
+    console.log(`Content Script: Auto-detected GitHub Repository (multiline): "${repo}", Branch: "${branch}"`);
+    return { repo, branch };
+  }
+  return null;
+}
+
 
 async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave) {
   try {

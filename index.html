@@ -228,6 +228,73 @@
         background-color: #e9ecef;
         text-decoration: underline;
       }
+      
+      /* Tab segment control */
+      .tabs {
+        display: flex;
+        border-bottom: 2px solid #dee2e6;
+        margin-bottom: 12px;
+      }
+      .tab-btn {
+        flex: 1;
+        background: none;
+        border: none;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #6c757d;
+        cursor: pointer;
+        text-align: center;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+      }
+      .tab-btn:hover {
+        color: #495057;
+      }
+      .tab-btn.active {
+        color: #0d6efd;
+        border-bottom-color: #0d6efd;
+      }
+
+      /* Panels */
+      .panel {
+        display: none;
+      }
+      .panel.active {
+        display: block;
+      }
+
+      /* Form control styles */
+      .form-group {
+        margin-bottom: 10px;
+        text-align: left;
+      }
+      .form-group label {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 3px;
+      }
+      .form-control {
+        width: 100%;
+        font-size: 13px;
+        padding: 6px 8px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-family: inherit;
+      }
+      .form-control:focus {
+        border-color: #86b7fe;
+        outline: 0;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+      }
+      .form-row {
+        display: flex;
+        gap: 8px;
+      }
     </style>
   </head>
   <body>
@@ -243,11 +310,41 @@
       <span class="toggle-label">Auto Save changes</span>
     </div>
 
-    <div class="controls">
-      <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
-      <button id="refreshBtn" class="btn btn-secondary" style="display: none;">Refresh</button>
+    <div class="tabs">
+      <button id="tabLocal" class="tab-btn active">Local Workspace</button>
+      <button id="tabGitHub" class="tab-btn">GitHub Repo</button>
     </div>
-    <button id="syncBtn" class="btn" style="display: none;">Grant Permissions to View Files</button>
+
+    <!-- Local Workspace Panel -->
+    <div id="localPanel" class="panel active">
+      <div class="controls">
+        <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
+        <button id="refreshBtn" class="btn btn-secondary" style="display: none;">Refresh</button>
+      </div>
+      <button id="syncBtn" class="btn" style="display: none;">Grant Permissions to View Files</button>
+    </div>
+
+    <!-- GitHub Panel -->
+    <div id="githubPanel" class="panel">
+      <div class="form-row">
+        <div class="form-group" style="flex: 2;">
+          <label for="gitRepo">Repository (owner/repo)</label>
+          <input type="text" id="gitRepo" class="form-control" placeholder="Sp4Rx/dsa-visualizer">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label for="gitBranch">Branch</label>
+          <input type="text" id="gitBranch" class="form-control" placeholder="main" value="main">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="gitToken">Personal Access Token (optional, for private repos)</label>
+        <input type="password" id="gitToken" class="form-control" placeholder="ghp_xxxxxxxxxxxx">
+      </div>
+      <div class="controls" style="margin-top: 8px;">
+        <button id="gitFetchBtn" class="btn">Fetch Files</button>
+        <button id="gitDetectBtn" class="btn btn-secondary">Auto-Detect</button>
+      </div>
+    </div>
     
     <div id="treeActions" class="tree-actions" style="display: none;">
       <button id="expandAllBtn" class="tree-action-btn">Expand All</button>
