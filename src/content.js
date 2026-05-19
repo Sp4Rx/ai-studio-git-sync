@@ -68,21 +68,20 @@ async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave
 
     if (isText && filePath) {
       console.log(`Text file detected: ${filePath}`);
-      try {
-        console.log(`Attempting to open existing file: ${filePath}`);
-        await openFileInTree(filePath);
-      } catch (err) {
-        console.warn(`File open failed (${err.message}). Attempting to upload via drop...`);
+      console.log(`Attempting to open existing file: ${filePath}`);
+      const opened = await openFileInTree(filePath);
+      
+      if (!opened) {
+        console.log(`File not found in tree. Attempting to upload via drop...`);
         // Fall back to drag and drop to upload new files
         await simulateFileDrop(file, filePath);
         
         if (autoSave) {
           // Wait 1.5s for the app to register the drop and render files
           await new Promise(r => setTimeout(r, 1500));
-          try {
-            await openFileInTree(filePath);
-          } catch (e) {
-            console.warn("Could not open newly created file in tree:", e);
+          const openedNew = await openFileInTree(filePath);
+          if (!openedNew) {
+            console.warn("Could not open newly created file in tree after drop.");
           }
           triggerWorkspaceSave();
         } else {
@@ -113,7 +112,15 @@ async function handleSync(fileName, filePath, fileType, fileDataBase64, autoSave
   }
 }
 
+function getNodeTextWithoutIcons(node) {
+  const clone = node.cloneNode(true);
+  const icons = clone.querySelectorAll('mat-icon, .mat-icon, .icon, .tree-icon, svg, [aria-hidden="true"]');
+  icons.forEach(icon => icon.remove());
+  return clone.textContent.replace(/\s+/g, ' ').trim();
+}
+
 // Navigates the File Explorer tree view to find and open the file
+// Returns true if successful, false if not found.
 async function openFileInTree(filePath) {
   const parts = filePath.split('/'); // e.g. ["src", "components", "Button.tsx"]
   let parentIndex = -1;
@@ -144,12 +151,10 @@ async function openFileInTree(filePath) {
       }
       
       if (level === currentLevel) {
-        const text = node.textContent.replace(/\s+/g, ' ').trim();
-        // Match name (folders might have dropdown icons/spaces, so check inclusion/starts/ends)
-        const nameMatches = text === segment || 
-                            text.includes(` ${segment}`) || 
-                            text.startsWith(`${segment} `) || 
-                            text.endsWith(` ${segment}`);
+        const nodeText = getNodeTextWithoutIcons(node);
+        const nameMatches = nodeText === segment || 
+                            nodeText.includes(segment) ||
+                            nodeText.endsWith(`/${segment}`);
                             
         if (nameMatches) {
           targetIndex = j;
@@ -159,7 +164,8 @@ async function openFileInTree(filePath) {
     }
 
     if (targetIndex === -1) {
-      throw new Error(`Could not find folder/file "${segment}" at level ${currentLevel} in the file tree.`);
+      console.log(`Segment "${segment}" at level ${currentLevel} not found in tree.`);
+      return false;
     }
 
     const targetNode = nodes[targetIndex];
@@ -189,6 +195,7 @@ async function openFileInTree(filePath) {
       }
     }
   }
+  return true;
 }
 
 // Update editor by communicating with the MAIN world page-context script (bypassing CSP)
