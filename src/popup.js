@@ -9,6 +9,9 @@ const statusDiv = document.getElementById('status');
 const workspaceInfo = document.getElementById('workspaceInfo');
 const fileListDiv = document.getElementById('fileList');
 const autoSaveToggle = document.getElementById('autoSaveToggle');
+const treeActionsDiv = document.getElementById('treeActions');
+const expandAllBtn = document.getElementById('expandAllBtn');
+const collapseAllBtn = document.getElementById('collapseAllBtn');
 
 // Load stored autosave preference
 chrome.storage.local.get({ autoSaveEnabled: true }, (res) => {
@@ -76,6 +79,9 @@ async function initWorkspace() {
       workspaceInfo.textContent = 'Ready';
       syncBtn.style.display = 'none';
       refreshBtn.style.display = 'none';
+      if (treeActionsDiv) {
+        treeActionsDiv.style.display = 'none';
+      }
       fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Open an AI Studio page to get started.</div>';
       showStatus('Waiting for active AI Studio tab...');
       return;
@@ -97,12 +103,18 @@ async function initWorkspace() {
         syncBtn.style.display = 'block';
         refreshBtn.style.display = 'none';
         fileListDiv.innerHTML = '';
+        if (treeActionsDiv) {
+          treeActionsDiv.style.display = 'none';
+        }
         showStatus('Permission required to read files.', true);
       }
     } else {
       workspaceInfo.textContent = 'No Workspace Selected';
       syncBtn.style.display = 'none';
       refreshBtn.style.display = 'none';
+      if (treeActionsDiv) {
+        treeActionsDiv.style.display = 'none';
+      }
       fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Please select a local workspace for this project.</div>';
       showStatus('Ready.');
     }
@@ -150,7 +162,14 @@ function buildAndRenderTree(files, container) {
   
   if (files.length === 0) {
     container.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">No files found</div>';
+    if (treeActionsDiv) {
+      treeActionsDiv.style.display = 'none';
+    }
     return;
+  }
+
+  if (treeActionsDiv) {
+    treeActionsDiv.style.display = 'flex';
   }
 
   // 1. Build nested tree structure
@@ -298,6 +317,36 @@ async function syncSingleFile(fileHandle, relativePath) {
   }
 }
 
+function expandAll() {
+  const folders = document.querySelectorAll('.tree-folder');
+  folders.forEach(folder => {
+    const arrow = folder.querySelector('.tree-folder-arrow');
+    const childrenContainer = folder.nextElementSibling;
+    if (childrenContainer && childrenContainer.classList.contains('tree-folder-children')) {
+      childrenContainer.style.display = 'block';
+      if (arrow) {
+        arrow.textContent = '▼';
+        arrow.style.transform = 'none';
+      }
+    }
+  });
+}
+
+function collapseAll() {
+  const folders = document.querySelectorAll('.tree-folder');
+  folders.forEach(folder => {
+    const arrow = folder.querySelector('.tree-folder-arrow');
+    const childrenContainer = folder.nextElementSibling;
+    if (childrenContainer && childrenContainer.classList.contains('tree-folder-children')) {
+      childrenContainer.style.display = 'none';
+      if (arrow) {
+        arrow.textContent = '▶';
+        arrow.style.transform = 'rotate(-90deg)';
+      }
+    }
+  });
+}
+
 selectWorkspaceBtn.addEventListener('click', async () => {
   try {
     const handle = await window.showDirectoryPicker({ mode: 'read' });
@@ -336,6 +385,13 @@ refreshBtn.addEventListener('click', async () => {
   showStatus('Refreshing file list...');
   await listFiles(currentHandle);
 });
+
+if (expandAllBtn) {
+  expandAllBtn.addEventListener('click', expandAll);
+}
+if (collapseAllBtn) {
+  collapseAllBtn.addEventListener('click', collapseAll);
+}
 
 // Tab listeners to automatically update popup state when the active project or page changes
 chrome.tabs.onActivated.addListener(() => {
