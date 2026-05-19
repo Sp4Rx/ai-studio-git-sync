@@ -26,6 +26,30 @@ const gitTokenInput = document.getElementById('gitToken');
 const gitFetchBtn = document.getElementById('gitFetchBtn');
 const gitDetectBtn = document.getElementById('gitDetectBtn');
 
+// Theme management
+const themeToggle = document.getElementById('themeToggle');
+const themeIcon = document.querySelector('.theme-icon');
+
+chrome.storage.local.get({ theme: 'light' }, (res) => {
+  setTheme(res.theme);
+});
+
+if (themeToggle) {
+  themeToggle.addEventListener('click', () => {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    chrome.storage.local.set({ theme: newTheme });
+  });
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  if (themeIcon) {
+    themeIcon.textContent = theme === 'light' ? '🌙' : '☀️';
+  }
+}
+
 // Load stored autosave preference
 chrome.storage.local.get({ autoSaveEnabled: true }, (res) => {
   if (autoSaveToggle) {
@@ -260,9 +284,20 @@ function buildAndRenderTree(files, container) {
       const fileItem = document.createElement('div');
       fileItem.className = 'tree-file';
       
+      const ext = nodeName.split('.').pop().toLowerCase();
+      let fileIcon = '📄';
+      if (['js', 'jsx'].includes(ext)) fileIcon = '🟨';
+      else if (['ts', 'tsx'].includes(ext)) fileIcon = '🟦';
+      else if (ext === 'json') fileIcon = '🔸';
+      else if (['html', 'htm'].includes(ext)) fileIcon = '🌐';
+      else if (ext === 'css') fileIcon = '🎨';
+      else if (ext === 'md') fileIcon = '📝';
+      else if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(ext)) fileIcon = '🖼️';
+      else if (['yml', 'yaml'].includes(ext)) fileIcon = '⚙️';
+      
       const nameSpan = document.createElement('span');
       nameSpan.className = 'tree-file-name';
-      nameSpan.textContent = `📄 ${nodeName}`;
+      nameSpan.textContent = `${fileIcon} ${nodeName}`;
       nameSpan.title = fileInfo.path;
       
       const btn = document.createElement('button');
@@ -289,11 +324,15 @@ function buildAndRenderTree(files, container) {
       arrow.style.display = 'inline-block';
       arrow.style.width = '10px';
       
-      const folderName = document.createElement('span');
-      folderName.textContent = `📁 ${nodeName}`;
+      const folderIconSpan = document.createElement('span');
+      folderIconSpan.textContent = '📂 ';
+      
+      const folderNameSpan = document.createElement('span');
+      folderNameSpan.textContent = nodeName;
       
       folderItem.appendChild(arrow);
-      folderItem.appendChild(folderName);
+      folderItem.appendChild(folderIconSpan);
+      folderItem.appendChild(folderNameSpan);
       
       const childrenContainer = document.createElement('div');
       childrenContainer.className = 'tree-folder-children';
@@ -304,6 +343,7 @@ function buildAndRenderTree(files, container) {
         childrenContainer.style.display = collapsed ? 'block' : 'none';
         arrow.textContent = collapsed ? '▼' : '▶';
         arrow.style.transform = collapsed ? 'none' : 'rotate(-90deg)';
+        folderIconSpan.textContent = collapsed ? '📂 ' : '📁 ';
       });
       
       parentEl.appendChild(folderItem);

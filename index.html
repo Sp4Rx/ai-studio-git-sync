@@ -1,104 +1,266 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Web Studio Syncer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+      :root {
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --sidebar-bg: #f1f5f9;
+        --text-color: #0f172a;
+        --text-secondary: #64748b;
+        --border-color: #e2e8f0;
+        --border-color-subtle: #f1f5f9;
+        
+        --btn-bg: #3b82f6;
+        --btn-hover-bg: #2563eb;
+        --btn-text: #ffffff;
+        
+        --btn-secondary-bg: #ffffff;
+        --btn-secondary-hover-bg: #f8fafc;
+        --btn-secondary-text: #475569;
+        --btn-secondary-border: #cbd5e1;
+
+        --btn-green-bg: #10b981;
+        --btn-green-hover-bg: #059669;
+        --btn-green-text: #ffffff;
+
+        --input-bg: #ffffff;
+        --input-border: #cbd5e1;
+        --input-focus-border: #3b82f6;
+        
+        /* Prominent Auto Save colors (Light Mode) */
+        --autosave-bg: #eff6ff;
+        --autosave-text: #1d4ed8;
+        --autosave-border: #bfdbfe;
+
+        --tab-active-bg: #dbeafe;
+        --tab-active-text: #1e40af;
+        --tab-hover-bg: #e2e8f0;
+        
+        --danger-color: #ef4444;
+        --success-color: #10b981;
+        --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+      }
+
+      [data-theme="dark"] {
+        --bg-color: #0b0f19;
+        --card-bg: #151f32;
+        --sidebar-bg: #151f32;
+        --text-color: #f8fafc;
+        --text-secondary: #94a3b8;
+        --border-color: #223147;
+        --border-color-subtle: #151f32;
+        
+        --btn-bg: #38bdf8;
+        --btn-hover-bg: #0ea5e9;
+        --btn-text: #0b0f19;
+        
+        --btn-secondary-bg: #151f32;
+        --btn-secondary-hover-bg: #1e293b;
+        --btn-secondary-text: #cbd5e1;
+        --btn-secondary-border: #38bdf8;
+
+        --btn-green-bg: #34d399;
+        --btn-green-hover-bg: #059669;
+        --btn-green-text: #0b0f19;
+
+        --input-bg: #0b0f19;
+        --input-border: #223147;
+        --input-focus-border: #38bdf8;
+
+        /* Prominent Auto Save colors (Dark Mode) */
+        --autosave-bg: #0c4a6e;
+        --autosave-text: #e0f2fe;
+        --autosave-border: #0284c7;
+        
+        --tab-active-bg: #0369a1;
+        --tab-active-text: #e0f2fe;
+        --tab-hover-bg: #1e293b;
+        
+        --danger-color: #f87171;
+        --success-color: #34d399;
+        --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+      }
+
       body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        padding: 16px;
-        background-color: #f8f9fa;
-        color: #212529;
+        font-family: 'Outfit', sans-serif;
+        padding: 0;
+        background-color: var(--bg-color);
+        color: var(--text-color);
         margin: 0;
         box-sizing: border-box;
-      }
-      h2 {
-        font-size: 16px;
-        margin-top: 0;
-        margin-bottom: 16px;
-        text-align: center;
-      }
-      .btn {
-        display: block;
-        width: 100%;
-        padding: 10px;
-        margin-bottom: 12px;
-        background-color: #0d6efd;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: 500;
-        transition: background-color 0.2s;
-      }
-      .btn:hover {
-        background-color: #0b5ed7;
-      }
-      .btn-secondary {
-        background-color: #6c757d;
-      }
-      .btn-secondary:hover {
-        background-color: #5c636a;
-      }
-      .btn:disabled {
-        background-color: #6c757d;
-        cursor: not-allowed;
-      }
-      #status {
-        margin-top: 12px;
+        transition: background-color 0.2s, color 0.2s;
+        min-height: 100vh;
         font-size: 13px;
-        color: #198754;
-        text-align: center;
-        min-height: 18px;
-        word-break: break-all;
       }
-      .error {
-        color: #dc3545 !important;
+
+      /* Slim, clean top accent bar */
+      .accent-bar {
+        height: 3px;
+        background: linear-gradient(90deg, #4285f4, #ea4335, #fbbc05, #34a853);
+        width: 100%;
       }
-      .workspace-info {
-        font-size: 12px;
-        color: #6c757d;
-        margin-bottom: 12px;
-        word-break: break-all;
+
+      .content-wrapper {
+        padding: 14px;
       }
-      .file-list {
-        max-height: 450px;
-        overflow-y: auto;
-        margin-top: 10px;
-        border: 1px solid #dee2e6;
-        border-radius: 4px;
-        background: white;
-      }
-      .file-item {
+
+      .header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 8px 12px;
-        border-bottom: 1px solid #dee2e6;
+        margin-bottom: 14px;
+      }
+      .header h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text-color);
+        letter-spacing: -0.3px;
+      }
+
+      .theme-btn {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
         font-size: 13px;
+        transition: transform 0.15s ease, background-color 0.15s;
       }
-      .file-item:last-child {
-        border-bottom: none;
+      .theme-btn:hover {
+        transform: scale(1.06);
+        background-color: var(--tab-hover-bg);
       }
-      .file-item span {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 70%;
+      .theme-btn:active {
+        transform: scale(0.94);
       }
-      .sync-btn-small {
-        background-color: #198754;
-        color: white;
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        padding: 9px 14px;
+        margin-bottom: 10px;
+        background-color: var(--btn-bg);
+        color: var(--btn-text);
         border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 13px;
+        font-family: inherit;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.1s ease, background-color 0.1s;
+        text-align: center;
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+        background-color: var(--btn-hover-bg);
+      }
+      .btn:active {
+        transform: translateY(0.5px);
+      }
+      
+      .btn-secondary {
+        background-color: var(--btn-secondary-bg);
+        color: var(--btn-secondary-text);
+        border: 1px solid var(--btn-secondary-border);
+      }
+      .btn-secondary:hover {
+        background-color: var(--btn-secondary-hover-bg);
+      }
+
+      #status {
+        margin-top: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-color);
+        text-align: left;
+        min-height: 18px;
+        word-break: break-all;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
+      }
+      #status:empty {
+        display: none;
+      }
+      .error {
+        color: var(--danger-color) !important;
+        border-color: var(--danger-color) !important;
+      }
+
+      .workspace-info {
+        font-size: 12px;
+        color: var(--text-color);
+        font-weight: 500;
+        margin-bottom: 12px;
+        word-break: break-all;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .file-list {
+        max-height: 380px;
+        overflow-y: auto;
+        margin-top: 10px;
+        border-radius: 12px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
+        padding: 4px;
+      }
+
+      .file-list::-webkit-scrollbar {
+        width: 5px;
+      }
+      .file-list::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .file-list::-webkit-scrollbar-thumb {
+        background: var(--border-color);
         border-radius: 3px;
-        padding: 4px 8px;
+      }
+
+      .sync-btn-small {
+        background-color: var(--btn-green-bg);
+        color: var(--btn-green-text);
+        border: none;
+        border-radius: 6px;
+        padding: 4px 10px;
         cursor: pointer;
         font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+        transition: transform 0.1s ease;
       }
       .sync-btn-small:hover {
-        background-color: #157347;
+        transform: scale(1.04);
+        background-color: var(--btn-green-hover-bg);
       }
+      .sync-btn-small:active {
+        transform: scale(0.96);
+      }
+
       .controls {
         display: flex;
         gap: 8px;
@@ -107,23 +269,25 @@
         flex: 1;
       }
       
-      /* Auto Save Toggle styles */
+      /* Prominent Switch design */
       .toggle-container {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         margin-bottom: 12px;
-        font-size: 13px;
-        background-color: #f1f3f5;
-        padding: 8px 12px;
-        border-radius: 4px;
-        border: 1px solid #e9ecef;
+        font-size: 12px;
+        background: var(--autosave-bg);
+        color: var(--autosave-text);
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--autosave-border);
+        box-shadow: var(--shadow-sm);
       }
       .switch {
         position: relative;
         display: inline-block;
-        width: 32px;
-        height: 18px;
-        margin-right: 10px;
+        width: 38px;
+        height: 20px;
       }
       .switch input {
         opacity: 0;
@@ -137,124 +301,147 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: #ced4da;
-        transition: .3s;
-        border-radius: 18px;
+        background-color: var(--border-color);
+        transition: .2s ease;
+        border-radius: 20px;
       }
       .slider:before {
         position: absolute;
         content: "";
-        height: 12px;
-        width: 12px;
+        height: 14px;
+        width: 14px;
         left: 3px;
         bottom: 3px;
-        background-color: white;
-        transition: .3s;
+        background-color: #ffffff;
+        transition: .2s ease;
         border-radius: 50%;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
       }
       input:checked + .slider {
-        background-color: #0d6efd;
+        background-color: var(--btn-bg);
       }
       input:checked + .slider:before {
-        transform: translateX(14px);
+        transform: translateX(18px);
       }
       .toggle-label {
         user-select: none;
-        color: #495057;
-        font-weight: 500;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
       }
 
       /* Collapsible Tree styles */
       .tree-folder {
         display: flex;
         align-items: center;
-        padding: 8px 12px;
+        padding: 5px 8px;
         font-weight: 600;
         font-size: 13px;
         cursor: pointer;
         user-select: none;
-        border-bottom: 1px solid #f1f3f5;
-        color: #343a40;
+        border-radius: 6px;
+        margin: 1px 0;
+        color: var(--text-color);
+        transition: background-color 0.15s, transform 0.15s;
+        gap: 6px;
       }
       .tree-folder:hover {
-        background-color: #f1f3f5;
+        background-color: var(--tab-hover-bg);
+        transform: translateX(1px);
       }
       .tree-folder-arrow {
-        color: #6c757d;
+        color: var(--text-secondary);
+        font-size: 9px;
         transition: transform 0.15s ease;
       }
       .tree-folder-children {
-        border-left: 1px dashed #dee2e6;
-        margin-left: 17px;
-        padding-left: 2px;
+        border-left: 1px dashed var(--border-color);
+        margin-left: 14px;
+        padding-left: 5px;
       }
       .tree-file {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 6px 12px;
+        padding: 4px 8px;
         font-size: 13px;
-        border-bottom: 1px solid #f1f3f5;
+        border-radius: 6px;
+        margin: 1px 0;
+        color: var(--text-color);
+        transition: background-color 0.15s, transform 0.15s;
       }
       .tree-file:hover {
-        background-color: #f8f9fa;
+        background-color: var(--tab-hover-bg);
+        transform: translateX(1px);
       }
       .tree-file-name {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         max-width: 65%;
-        color: #495057;
+        color: var(--text-color);
       }
+      
       .tree-actions {
         display: flex;
         justify-content: flex-end;
         gap: 8px;
-        margin-top: 10px;
+        margin-top: 8px;
         margin-bottom: 4px;
         padding: 0 4px;
       }
       .tree-action-btn {
         background: none;
         border: none;
-        color: #0d6efd;
+        color: var(--btn-bg);
         font-size: 11px;
-        font-weight: 500;
+        font-weight: 600;
         cursor: pointer;
-        padding: 2px 4px;
-        border-radius: 3px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition: background-color 0.15s;
       }
       .tree-action-btn:hover {
-        background-color: #e9ecef;
-        text-decoration: underline;
+        background-color: var(--tab-active-bg);
       }
       
-      /* Tab segment control */
+      /* Tabs segment control */
       .tabs {
         display: flex;
-        border-bottom: 2px solid #dee2e6;
+        background: var(--sidebar-bg);
+        border-radius: 10px;
+        padding: 3px;
         margin-bottom: 12px;
+        border: 1px solid var(--border-color);
       }
       .tab-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
         flex: 1;
         background: none;
         border: none;
-        padding: 8px 12px;
-        font-size: 13px;
+        padding: 7px 10px;
+        font-size: 12px;
         font-weight: 600;
-        color: #6c757d;
+        color: var(--text-secondary);
         cursor: pointer;
         text-align: center;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -2px;
-        transition: all 0.2s ease;
+        border-radius: 8px;
+        transition: all 0.15s;
       }
       .tab-btn:hover {
-        color: #495057;
+        color: var(--text-color);
+        background-color: var(--tab-hover-bg);
       }
       .tab-btn.active {
-        color: #0d6efd;
-        border-bottom-color: #0d6efd;
+        background: var(--tab-active-bg);
+        color: var(--tab-active-text);
       }
 
       /* Panels */
@@ -271,25 +458,29 @@
         text-align: left;
       }
       .form-group label {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 4px;
         font-size: 11px;
         font-weight: 600;
-        color: #495057;
-        margin-bottom: 3px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
       }
       .form-control {
         width: 100%;
         font-size: 13px;
-        padding: 6px 8px;
-        border: 1px solid #ced4da;
-        border-radius: 4px;
+        padding: 7px 10px;
+        border: 1px solid var(--input-border);
+        border-radius: 8px;
+        background-color: var(--input-bg);
+        color: var(--text-color);
         box-sizing: border-box;
         font-family: inherit;
+        outline: none;
+        transition: border-color 0.15s;
       }
       .form-control:focus {
-        border-color: #86b7fe;
-        outline: 0;
-        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+        border-color: var(--input-focus-border);
       }
       .form-row {
         display: flex;
@@ -298,62 +489,73 @@
     </style>
   </head>
   <body>
-    <h2>Local to Web Studio Syncer</h2>
+    <!-- Top accent line -->
+    <div class="accent-bar"></div>
     
-    <div id="workspaceInfo" class="workspace-info">No workspace selected</div>
-    
-    <div class="toggle-container">
-      <label class="switch">
-        <input type="checkbox" id="autoSaveToggle" checked>
-        <span class="slider"></span>
-      </label>
-      <span class="toggle-label">Auto Save changes</span>
-    </div>
-
-    <div class="tabs">
-      <button id="tabLocal" class="tab-btn active">Local Workspace</button>
-      <button id="tabGitHub" class="tab-btn">GitHub Repo</button>
-    </div>
-
-    <!-- Local Workspace Panel -->
-    <div id="localPanel" class="panel active">
-      <div class="controls">
-        <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
-        <button id="refreshBtn" class="btn btn-secondary" style="display: none;">Refresh</button>
+    <div class="content-wrapper">
+      <div class="header">
+        <h2>✨ AI Studio Syncer</h2>
+        <button id="themeToggle" class="theme-btn" title="Toggle Light/Dark Theme">
+          <span class="theme-icon">🌙</span>
+        </button>
       </div>
-      <button id="syncBtn" class="btn" style="display: none;">Grant Permissions to View Files</button>
-    </div>
+      
+      <!-- Prominent Auto Save Switch Card -->
+      <div class="toggle-container">
+        <span class="toggle-label">⚡ Auto Save Syncs</span>
+        <label class="switch">
+          <input type="checkbox" id="autoSaveToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
 
-    <!-- GitHub Panel -->
-    <div id="githubPanel" class="panel">
-      <div class="form-row">
-        <div class="form-group" style="flex: 2;">
-          <label for="gitRepo">Repository (owner/repo)</label>
-          <input type="text" id="gitRepo" class="form-control" placeholder="Sp4Rx/dsa-visualizer">
+      <div id="workspaceInfo" class="workspace-info">📂 No workspace selected</div>
+
+      <div class="tabs">
+        <button id="tabLocal" class="tab-btn active">💻 Local Workspace</button>
+        <button id="tabGitHub" class="tab-btn">🐙 GitHub Repo</button>
+      </div>
+
+      <!-- Local Workspace Panel -->
+      <div id="localPanel" class="panel active">
+        <div class="controls">
+          <button id="selectWorkspaceBtn" class="btn">📂 Select Local Workspace</button>
+          <button id="refreshBtn" class="btn btn-secondary" style="display: none;">🔄 Refresh</button>
         </div>
-        <div class="form-group" style="flex: 1;">
-          <label for="gitBranch">Branch</label>
-          <input type="text" id="gitBranch" class="form-control" placeholder="main" value="main">
+        <button id="syncBtn" class="btn" style="display: none;">🔑 Grant Permissions to View Files</button>
+      </div>
+
+      <!-- GitHub Panel -->
+      <div id="githubPanel" class="panel">
+        <div class="form-row">
+          <div class="form-group" style="flex: 2;">
+            <label for="gitRepo">📦 Repository (owner/repo)</label>
+            <input type="text" id="gitRepo" class="form-control" placeholder="Sp4Rx/dsa-visualizer">
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label for="gitBranch">🌿 Branch</label>
+            <input type="text" id="gitBranch" class="form-control" placeholder="main" value="main">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="gitToken">🔑 Personal Access Token (Required for private repos)</label>
+          <input type="password" id="gitToken" class="form-control" placeholder="ghp_xxxxxxxxxxxx">
+        </div>
+        <div class="controls" style="margin-top: 8px;">
+          <button id="gitFetchBtn" class="btn">⚡ Fetch Files</button>
+          <button id="gitDetectBtn" class="btn btn-secondary">✨ Auto-Detect</button>
         </div>
       </div>
-      <div class="form-group">
-        <label for="gitToken">Personal Access Token (optional, for private repos)</label>
-        <input type="password" id="gitToken" class="form-control" placeholder="ghp_xxxxxxxxxxxx">
+      
+      <div id="treeActions" class="tree-actions" style="display: none;">
+        <button id="expandAllBtn" class="tree-action-btn">➕ Expand All</button>
+        <button id="collapseAllBtn" class="tree-action-btn">➖ Collapse All</button>
       </div>
-      <div class="controls" style="margin-top: 8px;">
-        <button id="gitFetchBtn" class="btn">Fetch Files</button>
-        <button id="gitDetectBtn" class="btn btn-secondary">Auto-Detect</button>
-      </div>
+      
+      <div id="fileList" class="file-list"></div>
+      
+      <div id="status"></div>
     </div>
-    
-    <div id="treeActions" class="tree-actions" style="display: none;">
-      <button id="expandAllBtn" class="tree-action-btn">Expand All</button>
-      <button id="collapseAllBtn" class="tree-action-btn">Collapse All</button>
-    </div>
-    
-    <div id="fileList" class="file-list"></div>
-    
-    <div id="status"></div>
     
     <script type="module" src="/src/popup.js"></script>
   </body>

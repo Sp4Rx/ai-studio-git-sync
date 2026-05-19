@@ -68,8 +68,14 @@ For new files that do not exist yet in the Web IDE workspace, the extension fall
     *   **Local Workspace**: Select a folder locally using the browser's File System Access API.
     *   **GitHub Sync**: Connect to GitHub to retrieve the latest repository changes directly from the server.
     *   **Auto-Detection**: Scans the active AI Studio tab's DOM for Git configuration (e.g. `owner/repo on branch` in the Git pane) and automatically configures the sync target.
-    *   **Private Repositories**: Supports entering an optional Personal Access Token (PAT) for private repositories.
+    *   **Private Repositories**: Supports entering a Personal Access Token (PAT) which is required for private repositories.
     *   **Recursive File Tree**: Fetches repo structure via the GitHub Git Trees API and syncs files on-demand using the Git Blobs API.
+*   **Google AI Studio Theme Integration (Material Design 3)**:
+    *   Designed to blend seamlessly inside Google AI Studio's side panel using the official Material Design 3 guidelines with a cute yet clean, minimalistic layout.
+    *   Supports matching color schemes (Google Blue `#0b57d0` / `#38bdf8`, rounded pill buttons, and background tokens) for both dark and light modes.
+    *   Decorated with a slim Google color accent line, subtle springy interactive elements, and custom extension-aware file icons (e.g. 🟦 for TypeScript, 🟨 for JavaScript, 🌐 for HTML, 🎨 for CSS, 📝 for Markdown).
+    *   Features a highly prominent **Auto Save** status card at the top, styled with active brand colors for quick visibility.
+    *   Includes a dark and light mode toggle switch, persisting the active theme preference inside `chrome.storage.local`.
 
 ---
 
