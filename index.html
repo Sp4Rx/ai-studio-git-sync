@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Studio Syncer</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        width: 300px;
+        padding: 16px;
+        background-color: #f8f9fa;
+        color: #212529;
+        margin: 0;
+      }
+      h2 {
+        font-size: 16px;
+        margin-top: 0;
+        margin-bottom: 16px;
+        text-align: center;
+      }
+      .btn {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 12px;
+        background-color: #0d6efd;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s;
+      }
+      .btn:hover {
+        background-color: #0b5ed7;
+      }
+      .btn:disabled {
+        background-color: #6c757d;
+        cursor: not-allowed;
+      }
+      #status {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #198754;
+        text-align: center;
+        min-height: 18px;
+      }
+      .error {
+        color: #dc3545 !important;
+      }
+      .workspace-info {
+        font-size: 12px;
+        color: #6c757d;
+        margin-bottom: 12px;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Local to Web Studio Syncer</h2>
+    
+    <div id="workspaceInfo" class="workspace-info">No workspace selected</div>
+    
+    <button id="selectWorkspaceBtn" class="btn">Select Local Workspace</button>
+    <button id="syncBtn" class="btn" disabled>Sync to Web Studio</button>
+    
+    <div id="status"></div>
+    
+    <script type="module" src="/src/popup.js"></script>
+  </body>
+</html>

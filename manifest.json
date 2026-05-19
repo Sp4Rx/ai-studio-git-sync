@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Local to Web Studio Syncer",
+  "version": "1.0",
+  "description": "Syncs local files to web studio editor to fix reverse diff issues.",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["src/content.js"]
+    }
+  ]
+}
