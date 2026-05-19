@@ -9,37 +9,91 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleSync(request.fileName, request.filePath, request.fileType, request.fileData, request.autoSave);
     sendResponse({ success: true });
   } else if (request.action === 'detectGit') {
-    const gitInfo = detectGitHubInfo();
-    sendResponse({ gitInfo });
+    detectGitHubInfo().then(gitInfo => {
+      sendResponse({ gitInfo });
+    });
+    return true; // Keep message channel open for async response
   }
   return true;
 });
 
-function detectGitHubInfo() {
+async function detectGitHubInfo() {
   const regex = /([\w\-\.]+)\/([\w\-\.]+) on ([\w\-\.\/]+)/;
-  const elements = document.querySelectorAll('a, button, span, div, p, h1, h2, h3');
-  for (const el of elements) {
-    if (el.children.length === 0 || (el.children.length === 1 && el.firstElementChild.tagName === 'SPAN')) {
-      const text = el.textContent.trim();
+
+  function scanDOM() {
+    const elements = document.querySelectorAll('a, button, span, div, p, h1, h2, h3');
+    for (const el of elements) {
+      const text = el.textContent ? el.textContent.trim() : '';
       const match = text.match(regex);
       if (match) {
         const repo = `${match[1]}/${match[2]}`;
-        const branch = match[3];
-        console.log(`Content Script: Auto-detected GitHub Repository: "${repo}", Branch: "${branch}"`);
+        const branch = match[3].split(/\s+/)[0];
         return { repo, branch };
       }
     }
+    
+    const bodyText = document.body.innerText || '';
+    const multiLineRegex = /([\w\-\.]+)\/([\w\-\.]+)\s+on\s+([\w\-\.\/]+)/i;
+    const multiLineMatch = bodyText.match(multiLineRegex);
+    if (multiLineMatch) {
+      const repo = `${multiLineMatch[1]}/${multiLineMatch[2]}`;
+      const branch = multiLineMatch[3].split(/\s+/)[0];
+      return { repo, branch };
+    }
+    return null;
   }
+
+  // 1. Passive scan first
+  let gitInfo = scanDOM();
+  if (gitInfo) {
+    console.log(`Content Script: Passively detected Git settings:`, gitInfo);
+    return gitInfo;
+  }
+
+  // 2. Active scan: Find and click GitHub tab, scrape, and restore
+  console.log(`Content Script: Passive detection failed. Attempting active tab switching...`);
+  const buttons = Array.from(document.querySelectorAll('button, a, div[role="tab"], .mat-tab-label, .mat-focus-indicator, mat-tab-header div'));
   
-  const bodyText = document.body.innerText || '';
-  const multiLineRegex = /([\w\-\.]+)\/([\w\-\.]+)\s+on\s+([\w\-\.\/]+)/i;
-  const multiLineMatch = bodyText.match(multiLineRegex);
-  if (multiLineMatch) {
-    const repo = `${multiLineMatch[1]}/${multiLineMatch[2]}`;
-    const branch = multiLineMatch[3];
-    console.log(`Content Script: Auto-detected GitHub Repository (multiline): "${repo}", Branch: "${branch}"`);
-    return { repo, branch };
+  const githubTab = buttons.find(b => {
+    const text = b.textContent.toLowerCase();
+    return text.includes('github') || text.includes('git hub') || text.includes('sync to github');
+  });
+
+  if (githubTab) {
+    console.log(`Content Script: Found GitHub tab button. Locating active tab...`);
+    const activeTab = buttons.find(b => {
+      if (b === githubTab) return false;
+      return b.classList.contains('active') || 
+             b.classList.contains('selected') || 
+             b.getAttribute('aria-selected') === 'true' ||
+             b.className.includes('active') ||
+             b.className.includes('selected') ||
+             b.className.includes('mat-tab-label-active') ||
+             b.className.includes('mat-mdc-tab-active');
+    });
+
+    try {
+      githubTab.click();
+      await new Promise(r => setTimeout(r, 300)); // wait for panel rendering
+      
+      gitInfo = scanDOM();
+      
+      if (activeTab) {
+        activeTab.click();
+      } else {
+        // Toggle/close drawer
+        githubTab.click();
+      }
+      
+      if (gitInfo) {
+        console.log(`Content Script: Actively detected Git settings:`, gitInfo);
+        return gitInfo;
+      }
+    } catch (e) {
+      console.error(`Content Script: Error during active Git detection:`, e);
+    }
   }
+
   return null;
 }
 
