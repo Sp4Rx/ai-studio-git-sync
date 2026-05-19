@@ -5,12 +5,10 @@
   "description": "Syncs local files to web studio editor to fix reverse diff issues.",
   "permissions": [
     "storage",
-    "scripting",
-    "activeTab",
     "sidePanel"
   ],
   "host_permissions": [
-    "*://*/*"
+    "https://aistudio.google.com/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -21,11 +19,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*/*"],
+      "matches": ["https://aistudio.google.com/*"],
       "js": ["src/content.js"]
     },
     {
-      "matches": ["*://*/*"],
+      "matches": ["https://aistudio.google.com/*"],
       "js": ["src/page-context.js"],
       "world": "MAIN"
     }
