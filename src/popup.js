@@ -18,6 +18,28 @@ function showStatus(message, isError = false) {
   }
 }
 
+async function getActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab;
+  } catch (e) {
+    console.error('Error querying active tab:', e);
+    return null;
+  }
+}
+
+function getAppId(url) {
+  if (!url) return null;
+  const match = url.match(/\/apps\/([a-zA-Z0-9\-]+)/);
+  return match ? match[1] : null;
+}
+
+async function getStorageKey() {
+  const tab = await getActiveTab();
+  const appId = tab ? getAppId(tab.url) : null;
+  return appId ? `workspaceHandle_${appId}` : 'workspaceHandle_default';
+}
+
 async function verifyPermission(handle, readWrite) {
   const options = {};
   if (readWrite) {
@@ -32,9 +54,21 @@ async function verifyPermission(handle, readWrite) {
   return false;
 }
 
-async function loadSavedHandle() {
+async function initWorkspace() {
   try {
-    currentHandle = await getHandle('workspaceHandle');
+    const tab = await getActiveTab();
+    if (!tab || !tab.url || !tab.url.includes('aistudio.google.com')) {
+      workspaceInfo.textContent = 'Ready';
+      syncBtn.style.display = 'none';
+      refreshBtn.style.display = 'none';
+      fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Open an AI Studio page to get started.</div>';
+      showStatus('Waiting for active AI Studio tab...');
+      return;
+    }
+
+    const key = await getStorageKey();
+    currentHandle = await getHandle(key);
+    
     if (currentHandle) {
       const permission = await currentHandle.queryPermission({ mode: 'read' });
       if (permission === 'granted') {
@@ -47,8 +81,15 @@ async function loadSavedHandle() {
         workspaceInfo.textContent = `Needs permission: ${currentHandle.name}`;
         syncBtn.style.display = 'block';
         refreshBtn.style.display = 'none';
+        fileListDiv.innerHTML = '';
         showStatus('Permission required to read files.', true);
       }
+    } else {
+      workspaceInfo.textContent = 'No Workspace Selected';
+      syncBtn.style.display = 'none';
+      refreshBtn.style.display = 'none';
+      fileListDiv.innerHTML = '<div style="padding: 10px; text-align: center; color: #6c757d;">Please select a local workspace for this project.</div>';
+      showStatus('Ready.');
     }
   } catch (error) {
     console.error('Failed to load handle:', error);
@@ -129,7 +170,7 @@ async function syncSingleFile(fileHandle, relativePath) {
       reader.readAsDataURL(file);
     });
 
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getActiveTab();
     if (!tab) {
       throw new Error('No active tab found.');
     }
@@ -138,7 +179,7 @@ async function syncSingleFile(fileHandle, relativePath) {
       await chrome.tabs.sendMessage(tab.id, {
         action: 'syncFile',
         fileName: file.name,
-        filePath: relativePath, // Send the relative path!
+        filePath: relativePath,
         fileType: file.type,
         fileData: base64
       });
@@ -156,7 +197,8 @@ selectWorkspaceBtn.addEventListener('click', async () => {
   try {
     const handle = await window.showDirectoryPicker({ mode: 'read' });
     currentHandle = handle;
-    await saveHandle('workspaceHandle', handle);
+    const key = await getStorageKey();
+    await saveHandle(key, handle);
     
     workspaceInfo.textContent = `Selected: ${handle.name}`;
     syncBtn.style.display = 'none';
@@ -190,5 +232,16 @@ refreshBtn.addEventListener('click', async () => {
   await listFiles(currentHandle);
 });
 
-// Initialize
-document.addEventListener('DOMContentLoaded', loadSavedHandle);
+// Tab listeners to automatically update popup state when the active project or page changes
+chrome.tabs.onActivated.addListener(() => {
+  initWorkspace();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    initWorkspace();
+  }
+});
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', initWorkspace);

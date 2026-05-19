@@ -58,6 +58,12 @@ For new files that do not exist yet in the Web IDE workspace, the extension fall
 *   **`webkitGetAsEntry` Mocking**: Modern Web IDEs check `item.webkitGetAsEntry()` to support folder structure uploads. We mock `webkitGetAsEntry` to return a fake `FileSystemFileEntry` object containing the file content and its relative path.
 *   **Dynamic Inputs / Overlay Triggering**: The script dispatches `dragenter` and `dragover` events to trigger the app's dynamic upload overlays, waits **100ms** for any dynamic file inputs to render, feeds the file directly into native `<input type="file">` tags using a clean `DataTransfer` instance, and fires the final `drop` event to complete the upload.
 
+### 6. Project-Scoped Workspaces & Tab-Level Domain Restriction
+*   **Domain Restriction**: The extension is built to run exclusively on Google AI Studio. By omitting `default_path` in `manifest.json` and managing paths programmatically, the service worker enables the side panel and active toolbar actions **only** on tabs with `aistudio.google.com`. When navigating to other domains (e.g. `google.com`), the extension icon grays out and the side panel automatically closes/hides.
+*   **Scope Memory**: Instead of using a single global folder handle, `popup.js` parses the active URL's project app ID (e.g., `/apps/<app-id>`) and creates a unique storage key (`workspaceHandle_${appId}`).
+*   **Auto-Update on Switch**: The side panel registers listeners for tab changes (`chrome.tabs.onActivated`) and loading (`chrome.tabs.onUpdated`). Switching between different tabs instantly refreshes the folder and files shown in the side panel according to the active project.
+
+
 ---
 
 ## Chrome Web Store Policy Compliance Analysis

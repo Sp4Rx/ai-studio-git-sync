@@ -10,12 +10,12 @@
   "host_permissions": [
     "https://aistudio.google.com/*"
   ],
+  "action": {
+    "default_title": "AI Studio Syncer"
+  },
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
-  },
-  "side_panel": {
-    "default_path": "index.html"
   },
   "content_scripts": [
     {
