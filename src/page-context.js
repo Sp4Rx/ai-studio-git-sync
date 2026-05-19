@@ -75,3 +75,69 @@ window.addEventListener('SyncFileToMonaco', async (event) => {
     }));
   }
 });
+
+window.addEventListener('GetMonacoModels', () => {
+  try {
+    if (!window.monaco) {
+      window.dispatchEvent(new CustomEvent('GetMonacoModelsResult', {
+        detail: { success: false, error: 'window.monaco is not defined' }
+      }));
+      return;
+    }
+    const models = window.monaco.editor.getModels();
+    const modelsData = models.map(m => ({
+      uri: m.uri.toString(),
+      value: m.getValue()
+    }));
+    window.dispatchEvent(new CustomEvent('GetMonacoModelsResult', {
+      detail: { success: true, models: modelsData }
+    }));
+  } catch (err) {
+    window.dispatchEvent(new CustomEvent('GetMonacoModelsResult', {
+      detail: { success: false, error: err.message }
+    }));
+  }
+});
+
+window.addEventListener('GetActiveModelUri', () => {
+  try {
+    if (!window.monaco) {
+      window.dispatchEvent(new CustomEvent('GetActiveModelUriResult', { detail: { uri: null } }));
+      return;
+    }
+    const editors = window.monaco.editor.getEditors();
+    const activeEditor = editors.find(e => e.getDomNode() && e.getDomNode().offsetParent !== null) || editors[0];
+    if (activeEditor) {
+      const model = activeEditor.getModel();
+      if (model) {
+        window.dispatchEvent(new CustomEvent('GetActiveModelUriResult', { detail: { uri: model.uri.toString() } }));
+        return;
+      }
+    }
+    window.dispatchEvent(new CustomEvent('GetActiveModelUriResult', { detail: { uri: null } }));
+  } catch (e) {
+    window.dispatchEvent(new CustomEvent('GetActiveModelUriResult', { detail: { uri: null } }));
+  }
+});
+
+window.addEventListener('GetActiveModelContent', () => {
+  try {
+    if (!window.monaco) {
+      window.dispatchEvent(new CustomEvent('GetActiveModelContentResult', { detail: { success: false, error: 'window.monaco is not defined' } }));
+      return;
+    }
+    const editors = window.monaco.editor.getEditors();
+    const activeEditor = editors.find(e => e.getDomNode() && e.getDomNode().offsetParent !== null) || editors[0];
+    if (activeEditor) {
+      const model = activeEditor.getModel();
+      if (model) {
+        window.dispatchEvent(new CustomEvent('GetActiveModelContentResult', { detail: { success: true, value: model.getValue() } }));
+        return;
+      }
+    }
+    window.dispatchEvent(new CustomEvent('GetActiveModelContentResult', { detail: { success: false, error: 'No active Monaco editor model' } }));
+  } catch (err) {
+    window.dispatchEvent(new CustomEvent('GetActiveModelContentResult', { detail: { success: false, error: err.message } }));
+  }
+});
+

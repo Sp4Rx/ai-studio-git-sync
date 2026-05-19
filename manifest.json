@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AI Studio Git Sync",
   "version": "1.0",
-  "description": "Sync local workspace or GitHub files directly to Google AI Studio with auto-save, collapsible folder trees, and auto-detect.",
+  "description": "One-directional sync of local or GitHub workspace files directly to Google AI Studio with auto-save and diff checking.",
   "permissions": [
     "storage",
     "sidePanel"
