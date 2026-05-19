@@ -1,7 +1,7 @@
 // Background Service Worker
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Local to Web Studio Syncer installed.');
+  console.log('AI Studio Git Sync installed.');
   // Disable the action button globally by default on install/update
   chrome.action.disable();
 });

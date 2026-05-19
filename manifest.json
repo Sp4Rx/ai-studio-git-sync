@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Local to Web Studio Syncer",
+  "name": "AI Studio Git Sync",
   "version": "1.0",
   "description": "Syncs local files to web studio editor to fix reverse diff issues.",
   "permissions": [
@@ -12,7 +12,7 @@
     "https://api.github.com/*"
   ],
   "action": {
-    "default_title": "AI Studio Syncer"
+    "default_title": "AI Studio Git Sync"
   },
   "background": {
     "service_worker": "src/background.js",

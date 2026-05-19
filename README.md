@@ -1,4 +1,4 @@
-# Google AI Studio Git & Local Workspace Syncer
+# AI Studio Git Sync
 
 A lightweight Google Chrome Extension designed to synchronize your local workspace folder directly with the Web IDE ("Code" tab) inside **Google AI Studio**. 
 

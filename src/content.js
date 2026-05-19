@@ -1,6 +1,6 @@
 // Injected into the active tab to manipulate the DOM (ISOLATED World)
 
-console.log('Web Studio Syncer Content Script Loaded');
+console.log('AI Studio Git Sync Content Script Loaded');
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'syncFile') {

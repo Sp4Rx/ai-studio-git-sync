@@ -1,7 +1,7 @@
 // This script runs in the MAIN world (page context)
 // It has access to window.monaco directly.
 
-console.log('Web Studio Syncer Page-Context Script Loaded');
+console.log('AI Studio Git Sync Page-Context Script Loaded');
 
 window.addEventListener('SyncFileToMonaco', async (event) => {
     const { fileName, fileText, autoSave } = event.detail;

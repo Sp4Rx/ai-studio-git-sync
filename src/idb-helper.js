@@ -1,5 +1,5 @@
 // IndexedDB Helper for storing the FileSystemDirectoryHandle
-const DB_NAME = 'WebStudioSyncerDB';
+const DB_NAME = 'AIStudioGitSyncDB';
 const STORE_NAME = 'handles';
 
 export async function initDB() {
